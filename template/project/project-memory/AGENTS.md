@@ -1,7 +1,7 @@
 # Проектная память project-memory
 
-Общие правила находятся в корневом `AGENTS.md`: разделы «Project Memory» и
-«Implementation Memory Workflow». Здесь только локальная специфика каталога.
+Общие правила находятся в разделе «Project Memory» корневого `AGENTS.md`;
+порядок сессии — в `session-protocol.md`. Здесь только локальная специфика каталога.
 
 ## Правила
 

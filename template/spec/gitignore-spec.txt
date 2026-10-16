@@ -1,4 +1,4 @@
-# Управляется agent-kit: зависимости Node.js для focused-spec (npm ci);
-# настройки ролей OMO проекта версионируются.
+# Управляется agent-kit: локальные зависимости CLI focused-spec.
+# Существующая конфигурация OMO проекта остается версионируемой.
 node_modules/
 !.omo/omo.jsonc
