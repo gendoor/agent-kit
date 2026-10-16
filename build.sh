@@ -65,7 +65,7 @@ fi
 
 mkdir -p "$KIT_DIR/dist"
 rm -f "$KIT_DIR/dist/$OUT.tar.gz" "$KIT_DIR/dist/$OUT.zip"
-tar -C "$STAGE" -czf "$KIT_DIR/dist/$OUT.tar.gz" "$NAME"
+COPYFILE_DISABLE=1 tar -C "$STAGE" -czf "$KIT_DIR/dist/$OUT.tar.gz" "$NAME"
 python3 - "$STAGE" "$NAME" "$KIT_DIR/dist/$OUT.zip" <<'PY'
 import os, sys, zipfile
 stage, name, out = sys.argv[1:]

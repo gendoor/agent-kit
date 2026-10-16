@@ -1,6 +1,10 @@
-# Project-local runner workflow
+# Дополнение agent-kit: проектные runner'ы
 
-Read this only when creating, repairing, or parallelizing an evidence runner. It ships **with the skill**; use the consuming project's tests, the installed CLI (`focused-spec --help`), and public types from `focused-spec/runner`. Do not rely on the focused-spec source repository or copy a runner from another project.
+Это дополнительные примеры для проекта. Сначала загрузите официальный
+`focused-spec` skill и его актуальные инструкции `workflow` и `runners` из
+установленного проектного CLI. Контракт типов — `focused-spec/runner`;
+публичная документация выбранного плагина доступна через локальный `plugin-docs`.
+Не заменяйте этими примерами руководство пакета и не используйте глобальный CLI.
 
 ## Choose an exact selector
 
@@ -49,4 +53,6 @@ Audit actual shared writes and dependencies: test databases/schemas, filesystem 
 - Confirm spawn failure and missing/unreadable per-test output cannot produce `pass`. Verify abort and temporary fixture cleanup.
 - If partitioned, verify each selected target appears once, independent groups can overlap, conflicting groups do not overlap, and a group executes just its assigned targets. Compare the **complete scenario/target outcomes** against serial execution using the same required external services; speed without extra failures is the acceptance criterion.
 
-Use `focused-spec validate` to check discovered evidence and `focused-spec run` to execute it. Strict validation happens before `run` starts tests. `SKIP`/`ERROR` need an explicit CLI skip policy or they prevent success. Keep a concise regression test for an independently failing boundary, not one that asserts only field forwarding or source text.
+Use the same project-local CLI from the installed skill for `validate` and `run`.
+Strict validation happens before `run` starts tests. `SKIP`/`ERROR` prevent
+success unless the project's explicit skip policy permits a skip.

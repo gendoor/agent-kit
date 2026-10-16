@@ -6,8 +6,11 @@ set -eu
 DEV=$(cd "$(dirname "$0")" && pwd)
 cd "$DEV"
 FOCUSED_SPEC=$(sed -n 's/^FOCUSED_SPEC_VERSION = "\(.*\)"/\1/p' ../lib/kit.py)
-[ -d node_modules/typescript ] && [ -d "node_modules/focused-spec" ] || npm install --silent --no-audit --no-fund --no-save \
-  typescript@6 @types/node@24 "focused-spec@$FOCUSED_SPEC" >/dev/null
+INSTALLED=$(node -p "try { require('./node_modules/focused-spec/package.json').version } catch { '' }" 2>/dev/null)
+if [ ! -d node_modules/typescript ] || [ "$INSTALLED" != "$FOCUSED_SPEC" ]; then
+  npm install --silent --no-audit --no-fund --no-save \
+    typescript@6 @types/node@24 "focused-spec@$FOCUSED_SPEC" >/dev/null
+fi
 node node_modules/typescript/bin/tsc -p tsconfig.spec.json
 python3 -B -m unittest discover -s "$DEV" -p 'test_kit_omo.py'
 

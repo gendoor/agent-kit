@@ -92,7 +92,7 @@ class OmoProfileTests(unittest.TestCase):
 
 
 class InstallerComponentTests(unittest.TestCase):
-    def test_install_spec_checks_only_document_structure(self):
+    def test_install_spec_preserves_conflicting_custom_skill(self):
         variables = {
             "KIT_VERSION": kit.KIT_VERSION,
             "FOCUSED_SPEC_VERSION": kit.FOCUSED_SPEC_VERSION,
@@ -100,49 +100,83 @@ class InstallerComponentTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
-            with patch.object(kit, "node_tools", return_value=("node", "npm")), \
-                 patch.object(kit.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run, \
-                 contextlib.redirect_stdout(io.StringIO()):
-                kit.install_spec(project, variables, check=True)
-            commands = [call.args[0] for call in run.call_args_list]
-            self.assertEqual(commands, [
-                ["npm", "install", "--no-audit", "--no-fund", "--loglevel=error"],
-                ["node", str(project / "node_modules/focused-spec/dist/cli.js"), "validate", "--syntax-only"],
-            ])
-            # Проверка структуры не заменяет полную валидацию по явной команде проекта.
-            package = json.loads((project / "package.json").read_text(encoding="utf-8"))
-            self.assertEqual(package["scripts"]["spec:validate"], "focused-spec validate")
-            self.assertNotIn("test:runners", package["scripts"])
-            self.assertFalse((project / ".focused-spec/runners").exists())
-            config = (project / ".focused-spec/config.yaml").read_text(encoding="utf-8")
-            self.assertIn("runners: {}", config)
-            self.assertNotIn("dotnet-xunit:", config)
-            examples = project / ".opencode/skills/focused-spec/references/runner-templates/.focused-spec/runners"
-            self.assertTrue((examples / "dotnet-xunit.ts").exists())
-            self.assertTrue((examples / "py-unittest.ts").exists())
+            skill = project / ".opencode/skills/focused-spec/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("Custom instructions\n", encoding="utf-8")
 
-    def test_install_spec_preserves_existing_runner_and_project_settings(self):
-        variables = {
-            "KIT_VERSION": kit.KIT_VERSION,
-            "FOCUSED_SPEC_VERSION": kit.FOCUSED_SPEC_VERSION,
-            "PROJECT_NAME": "Проверка обновления", "WING": "upgrade_check",
-        }
+            def run_command(command, **kwargs):
+                if "init" in command:
+                    report = {"root": str(project.resolve()), "tools": ["opencode"],
+                              "files": [{"path": ".opencode/skills/focused-spec/SKILL.md",
+                                         "action": "conflict", "applied": False}],
+                              "errors": [{"path": ".opencode/skills/focused-spec/SKILL.md",
+                                          "message": "existing file differs"}]}
+                    return subprocess.CompletedProcess(command, 1, json.dumps(report), "")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch.object(kit, "node_tools", return_value=("node", "npm")), \
+                 patch.object(kit.subprocess, "run", side_effect=run_command), \
+                 contextlib.redirect_stdout(io.StringIO()), \
+                 self.assertRaisesRegex(kit.KitError, "existing file differs"):
+                kit.install_spec(project, variables, check=True)
+            self.assertEqual(skill.read_text(encoding="utf-8"), "Custom instructions\n")
+            self.assertFalse((project / ".opencode/commands/focused-spec.md").exists())
+
+    def test_valid_yaml_version_variants_allow_repeat_install(self):
+        template = (KIT_ROOT / "template/spec/project/.focused-spec/config.yaml").read_text(encoding="utf-8")
+        for version in ("version: 5 # Версия конфигурации", '"version": 5', "\ufeffversion: 5"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                project = Path(tmp)
+                config = project / ".focused-spec/config.yaml"
+                config.parent.mkdir(parents=True)
+                content = template.replace("version: 5", version.lstrip("\ufeff"))
+                if version.startswith("\ufeff"):
+                    content = "\ufeff" + content
+                config.write_text(content, encoding="utf-8")
+                args = kit.build_parser().parse_args([
+                    "install", str(project), "--only", "spec", "--dry-run", "--skip-probe"])
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(kit.cmd_install(args), 0)
+                self.assertEqual(config.read_text(encoding="utf-8"), content)
+                self.assertFalse((project / ".agent-kit.json").exists())
+
+    def test_nested_version_does_not_mask_legacy_root_version(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
-            runner = project / ".focused-spec/runners/custom.ts"
-            runner.parent.mkdir(parents=True)
-            runner.write_text("// Проектный адаптер.\n", encoding="utf-8")
             config = project / ".focused-spec/config.yaml"
-            original_config = "version: 2\nrunners:\n  custom:\n    module: ./.focused-spec/runners/custom.ts\n"
-            config.write_text(original_config, encoding="utf-8")
-            package = project / "package.json"
-            package.write_text(json.dumps({"scripts": {"test:runners": "node custom-tests.js"}}), encoding="utf-8")
-            with patch.object(kit, "node_tools", return_value=None), contextlib.redirect_stdout(io.StringIO()):
-                kit.install_spec(project, variables, check=True)
-            self.assertEqual(runner.read_text(encoding="utf-8"), "// Проектный адаптер.\n")
-            self.assertEqual(config.read_text(encoding="utf-8"), original_config)
-            self.assertEqual(json.loads(package.read_text(encoding="utf-8"))["scripts"]["test:runners"],
-                             "node custom-tests.js")
+            config.parent.mkdir(parents=True)
+            config.write_text("version: 2\nspecifications:\n  version: 5\n", encoding="utf-8")
+            args = kit.build_parser().parse_args([
+                "install", str(project), "--only", "base,spec", "--dry-run", "--no-mempalace"])
+            with patch.object(kit, "install_base") as base, \
+                 patch.object(kit, "install_spec") as spec, \
+                 self.assertRaisesRegex(kit.KitError, "не версии 5"):
+                kit.cmd_install(args)
+            base.assert_not_called()
+            spec.assert_not_called()
+            self.assertFalse((project / ".agent-kit.json").exists())
+
+    def test_legacy_spec_project_refused_before_any_component_changes(self):
+        for old_config, old_package in ((True, False), (False, True)):
+            with self.subTest(old_config=old_config), tempfile.TemporaryDirectory() as tmp:
+                project = Path(tmp)
+                config = project / ".focused-spec/config.yaml"
+                config.parent.mkdir(parents=True)
+                config.write_text("version: 2\nrunners: {}\n" if old_config else "version: 5\nrunners: {}\n",
+                                  encoding="utf-8")
+                package = project / "package.json"
+                package.write_text(json.dumps({"devDependencies": {"focused-spec": "0.6.0" if old_package else "0.9.2"}}), encoding="utf-8")
+                args = kit.build_parser().parse_args([
+                    "install", str(project), "--only", "base,spec", "--no-mempalace", "--skip-probe"])
+                with patch.object(kit, "node_tools", return_value=("node", "npm")), \
+                     patch.object(kit, "install_base") as base, \
+                     patch.object(kit, "install_spec") as spec, \
+                     self.assertRaises(kit.KitError):
+                    kit.cmd_install(args)
+                base.assert_not_called()
+                spec.assert_not_called()
+                self.assertFalse((project / ".agent-kit.json").exists())
+                self.assertFalse((project / "AGENTS.md").exists())
 
     def test_components_and_default_installation(self):
         self.assertEqual(kit.COMPONENTS, ("base", "spec"))

@@ -32,7 +32,7 @@ MEMPALACE_VERSION = "3.9.0"
 EMBEDDING_MODEL = "embeddinggemma"
 MIN_VENV_PYTHON = (3, 12)
 DEFAULT_OMO = "oh-my-openagent@4.19.4"
-FOCUSED_SPEC_VERSION = "0.6.0"
+FOCUSED_SPEC_VERSION = "0.9.2"
 # Runner'ы .ts запускаются без сборки: нужна встроенная поддержка TypeScript в Node.
 MIN_NODE = (22, 18)
 SPEC_SCRIPTS = {
@@ -621,8 +621,7 @@ def slug_wing(name: str) -> str:
 
 
 def merge_package_json(project: Path) -> bool:
-    """Добавляет focused-spec и npm-скрипты; версии и скрипты проекта не меняются.
-    Возвращает True, если package.json изменен."""
+    """Adds pinned focused-spec packages and missing npm scripts without changing other dependencies."""
     path = project / "package.json"
     if path.exists():
         raw = read_text(path)
@@ -634,12 +633,13 @@ def merge_package_json(project: Path) -> bool:
         raw, config = "", {"private": True}
     changed = []
     deps = config.setdefault("devDependencies", {})
-    current = deps.get("focused-spec") or (config.get("dependencies") or {}).get("focused-spec")
-    if current is None:
-        deps["focused-spec"] = FOCUSED_SPEC_VERSION
-        changed.append(f"focused-spec {FOCUSED_SPEC_VERSION}")
-    elif current != FOCUSED_SPEC_VERSION:
-        log("keep", f"package.json: focused-spec {current} задан проектом (комплект проверен с {FOCUSED_SPEC_VERSION})")
+    for package in ("focused-spec", "@focused-spec/format-inline"):
+        current = deps.get(package) or (config.get("dependencies") or {}).get(package)
+        if current is None:
+            deps[package] = FOCUSED_SPEC_VERSION
+            changed.append(f"{package} {FOCUSED_SPEC_VERSION}")
+        elif current != FOCUSED_SPEC_VERSION:
+            raise KitError(f"{package} {current} уже задан проектом; agent-kit устанавливает только новые проекты с {FOCUSED_SPEC_VERSION}, миграция существующего проекта не выполняется")
     if not deps:
         config.pop("devDependencies")
     scripts = config.setdefault("scripts", {})
@@ -676,11 +676,40 @@ def node_tools() -> tuple[str, str] | None:
     return node, npm
 
 
+def check_spec_project(project: Path) -> None:
+    """Reject unsupported existing installations before touching base or spec files."""
+    config = project / ".focused-spec/config.yaml"
+    if config.exists():
+        # Only the root scalar is needed for the pre-write migration guard. Do not
+        # mistake an indented plugin option for the configuration version.
+        lines = [line for line in read_text(config).lstrip("\ufeff").splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")
+                 and line.strip() not in ("---", "...")]
+        indent = min((len(line) - len(line.lstrip(" ")) for line in lines), default=0)
+        roots = [line.strip() for line in lines if len(line) - len(line.lstrip(" ")) == indent]
+        keys = [line for line in roots
+                if re.match(r'''^(?:version|"version"|'version')[ \t]*:''', line)]
+        if len(keys) != 1 or not re.fullmatch(
+                r'''(?:version|"version"|'version')[ \t]*:[ \t]*5(?:[ \t]+\#.*)?[ \t]*''', keys[0]):
+            raise KitError(f"{config}: существующая конфигурация не версии 5 или версия записана в неподдерживаемой форме; миграция старых проектов не выполняется")
+    manifest = project / "package.json"
+    if manifest.exists():
+        try:
+            package = json.loads(read_text(manifest).lstrip("\ufeff"))
+        except json.JSONDecodeError as exc:
+            raise KitError(f"package.json не разобран как JSON ({exc})") from exc
+        for name in ("focused-spec", "@focused-spec/format-inline"):
+            versions = [group[name] for key in ("dependencies", "devDependencies")
+                        if isinstance(group := package.get(key), dict) and name in group]
+            if any(version != FOCUSED_SPEC_VERSION for version in versions):
+                raise KitError(f"package.json: {name} {versions} не соответствует {FOCUSED_SPEC_VERSION}; миграция старых проектов не выполняется")
+
+
 def install_spec(project: Path, variables: dict, check: bool) -> None:
-    """Исполняемые спецификации focused-spec: навык и неактивные примеры управляются комплектом,
-    активные runner'ы, конфигурация, роли OMO и спецификации принадлежат проекту."""
+    """Install pinned CLI, inline adapter, and package-owned OpenCode loader; preserve project files."""
     spec = TEMPLATE / "spec"
-    step("focused-spec: навык и неактивные примеры runner'ов")
+    check_spec_project(project)
+    step("focused-spec: неактивные примеры runner'ов")
     render_tree(spec / "managed", project, variables, managed=True)
     step("focused-spec: файлы проекта (.focused-spec/config.yaml)")
     render_tree(spec / "project", project, variables, managed=False)
@@ -693,31 +722,42 @@ def install_spec(project: Path, variables: dict, check: bool) -> None:
                  header=TEMPLATE / "blocks" / "agents-header.md")
     step("focused-spec: зависимости Node.js")
     if DRY_RUN:
-        log("dry-run", "npm install и проверка focused-spec")
+        log("dry-run", "npm install, init --tools opencode и проверка focused-spec")
         return
-    tools = node_tools()
-    if tools is None:
-        log("hint", f"установите Node.js {'.'.join(map(str, MIN_NODE))}+ и выполните npm install в проекте")
-        return
-    node, npm = tools
+    node, npm = node_tools() or (None, None)
+    if node is None or npm is None:
+        raise KitError(f"для установки focused-spec нужны Node.js {'.'.join(map(str, MIN_NODE))}+ и npm")
     # Измененный package.json требует обновить package-lock.json; иначе ставим строго по lock-файлу.
     install = "ci" if (project / "package-lock.json").exists() and not package_changed else "install"
     result = subprocess.run([npm, install, "--no-audit", "--no-fund", "--loglevel=error"], cwd=project)
     if result.returncode != 0:
         raise KitError(f"npm {install} завершился с кодом {result.returncode} (см. вывод выше)")
     log("ok", f"npm {install}")
-    if not check:
-        return
     cli = project / "node_modules" / "focused-spec" / "dist" / "cli.js"
-    # Установка проверяет структуру, не запускает runner.resolve и восстановление зависимостей проекта.
-    for title, command in (("focused-spec validate --syntax-only", [node, str(cli), "validate", "--syntax-only"]),):
+    step("focused-spec: официальная интеграция OpenCode")
+    for preview in (True, False):
+        command = [node, str(cli), "init", "--tools", "opencode", "--json"]
+        if preview:
+            command.append("--dry-run")
         result = subprocess.run(command, cwd=project, capture_output=True, text=True,
                                 encoding="utf-8", errors="replace")
-        if result.returncode != 0:
-            raise KitError(f"{title}: код {result.returncode}\n" + (result.stdout + result.stderr)[-2000:])
-        summary = [line for line in result.stdout.splitlines()
-                   if "focused specifications" in line or re.match(r"^\S* ?(pass|fail) \d+", line)]
-        log("ok", f"{title}: " + ("; ".join(summary) or "успешно"))
+        try:
+            report = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise KitError(f"focused-spec init: ответ не JSON ({result.stderr or result.stdout})") from exc
+        if (result.returncode != 0 or report.get("errors") or
+                report.get("root") != str(project.resolve()) or report.get("tools") != ["opencode"]):
+            raise KitError(f"focused-spec init: {report.get('errors') or result.stderr or report}")
+        log("ok", "focused-spec init --tools opencode" + (" --dry-run" if preview else ""))
+    if not check:
+        return
+    # Syntax-only does not resolve runner targets or execute project tests.
+    command = [node, str(cli), "validate", "--syntax-only"]
+    result = subprocess.run(command, cwd=project, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        raise KitError(f"focused-spec validate --syntax-only: код {result.returncode}\n" + (result.stdout + result.stderr)[-2000:])
+    log("ok", "focused-spec validate --syntax-only (структура; без проверки evidence)")
 
 
 def parse_components(raw: str) -> tuple[str, ...]:
@@ -742,6 +782,10 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     components = parse_components(args.only) if args.only else \
         tuple(c for c in COMPONENTS if not (c == "spec" and args.no_spec))
+    if "spec" in components:
+        if not DRY_RUN and node_tools() is None:
+            raise KitError(f"для установки focused-spec нужны Node.js {'.'.join(map(str, MIN_NODE))}+ и npm")
+        check_spec_project(project)
     base = "base" in components
 
     state_path = project / ".agent-kit.json"
@@ -810,7 +854,7 @@ def cmd_install(args: argparse.Namespace) -> int:
         commit[1:1] = ["opencode.json"]
         commit += [".gitattributes", "project-memory/", ".opencode/commands/", ".omo/omo.jsonc"]
     if "spec" in components:
-        commit += ["package.json", "package-lock.json", ".focused-spec/", ".opencode/skills/focused-spec/"]
+        commit += ["package.json", "package-lock.json", ".focused-spec/", ".opencode/skills/focused-spec/", ".opencode/commands/focused-spec.md"]
         if ".omo/omo.jsonc" not in commit:
             commit.append(".omo/omo.jsonc")
     hints.append("Закоммитьте " + ", ".join(commit) + ".")

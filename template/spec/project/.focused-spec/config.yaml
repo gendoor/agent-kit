@@ -2,17 +2,22 @@
 # «OmO and focused-spec Executable Specifications» в AGENTS.md).
 # specs/<capability>/spec.md — долговременная спецификация компонента или возможности,
 #   единственный владелец ID сценариев действующего поведения;
-# specs/changes/<change>/spec.md — сценарии текущего изменения: правки сценариев
-#   владельца помечаются REVISES, после приемки переносятся к владельцу;
+# specs/changes/<change>/spec.md — самостоятельные сценарии текущего изменения;
+#   принятое поведение явно переносится к владельцу после проверки;
 # specs/archive/** — закрытые изменения, в discovery не участвуют.
 # Имена scope общие для обоих слоев и не должны совпадать.
 # Файл создан agent-kit {{KIT_VERSION}} и принадлежит проекту.
-version: 2
+version: 5
 specifications:
+  formats:
+    inline:
+      package: '@focused-spec/format-inline'
   documents:
     - match: specs/{scope}/spec.md
+      format: inline
       exclude: [specs/archive/**, specs/changes/**]
     - match: specs/changes/{scope}/spec.md
+      format: inline
 # Агент подключает runner под стек проекта при первой задаче с исполняемым evidence.
 # Языковые SDK и тестовые фреймворки не навязываются установкой agent-kit.
 runners: {}
