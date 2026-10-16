@@ -917,7 +917,17 @@ def check_spec_compatibility(project: Path, node: str, cli: Path) -> None:
         if not path.exists():
             continue
         active = True
-        match = re.search(r"(?m)^version:[ \t]*(\d+)[ \t]*(?:#.*)?$", read_text(path).lstrip("\ufeff").replace("\r\n", "\n"))
+        # Проверяем только корневой скаляр: вложенный version не скрывает старый контракт.
+        lines = [line for line in read_text(path).lstrip("\ufeff").splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")
+                 and line.strip() not in ("---", "...")]
+        indent = min((len(line) - len(line.lstrip(" ")) for line in lines), default=0)
+        roots = [line.strip() for line in lines if len(line) - len(line.lstrip(" ")) == indent]
+        keys = [line for line in roots
+                if re.match(r'''^(?:version|"version"|'version')[ \t]*:''', line)]
+        match = re.fullmatch(
+            r'''(?:version|"version"|'version')[ \t]*:[ \t]*(\d+)(?:[ \t]+\#.*)?[ \t]*''',
+            keys[0]) if len(keys) == 1 else None
         if match is None or int(match.group(1)) != contracts["configuration"]:
             raise KitError(f"focused-spec@latest несовместим с активной конфигурацией {path.relative_to(project)}; "
                            "обновление остановлено до npm install, config и evidence сохранены")
@@ -983,17 +993,28 @@ def owned_spec_integrations(project: Path) -> dict[str, bytes]:
     return owned
 
 
-def install_spec(project: Path, check: bool) -> str | None:
+def prepare_spec_install(project: Path) -> tuple[str, str, str, dict[str, bytes], dict[str, bytes]]:
+    """Готовит проверенный план latest до записи файлов base или spec."""
+    owned = owned_spec_integrations(project)
+    tools = node_tools()
+    if tools is None:
+        raise KitError(f"для focused-spec нужны Node.js {'.'.join(map(str, MIN_NODE))}+ и npm")
+    node, npm = tools
+    version = resolve_spec_latest(npm)
+    log("resolve", f"focused-spec@latest -> {version}")
+    assets = preview_spec_install(project, node, npm, set(owned), version)
+    return node, npm, version, owned, assets
+
+
+def install_spec(project: Path, check: bool,
+                 prepared: tuple[str, str, str, dict[str, bytes], dict[str, bytes]] | None = None) -> str | None:
     """Устанавливает только локальный CLI и его штатную интеграцию OpenCode."""
     spec_preflight(project)
-    owned = owned_spec_integrations(project)
-    allowed = set(owned)
-    tools = node_tools()
-    if tools is None and not DRY_RUN:
-        raise KitError(f"для focused-spec нужны Node.js {'.'.join(map(str, MIN_NODE))}+ и npm")
     step(f"focused-spec {FOCUSED_SPEC_TAG}: локальный CLI и init --tools opencode")
     cli = spec_cli(project)
     if DRY_RUN:
+        allowed = set(owned_spec_integrations(project))
+        tools = node_tools()
         if cli is not None and tools is not None:
             root = cli.parent.parent
             if all((root / asset).is_file() for asset in SPEC_ASSETS.values()) and project.exists():
@@ -1008,10 +1029,8 @@ def install_spec(project: Path, check: bool) -> str | None:
         log("dry-run", "точная latest-версия в этом режиме не запрашивается; скачиваний и изменений нет")
         merge_package_json(project)
         return
-    node, npm = tools
-    version = resolve_spec_latest(npm)
-    log("resolve", f"focused-spec@latest -> {version}")
-    expected_assets = preview_spec_install(project, node, npm, allowed, version)
+    node, npm, version, owned, expected_assets = prepared if prepared is not None else prepare_spec_install(project)
+    allowed = set(owned)
     for relative, content in owned.items():
         path = safe_spec_path(project, relative)
         if not path.is_file() or path.read_bytes() != content:
@@ -1144,11 +1163,13 @@ def cmd_install(args: argparse.Namespace) -> int:
     elif not project.exists():
         project.mkdir(parents=True)
 
+    # Native init --dry-run требует существующий cwd, но файлы base еще не созданы.
+    prepared_spec = prepare_spec_install(project) if "spec" in components and not DRY_RUN else None
     if base:
         install_base(project, args, variables, venv_python)
     installed_spec_version = None
     if "spec" in components:
-        installed_spec_version = install_spec(project, check=not args.skip_probe)
+        installed_spec_version = install_spec(project, check=not args.skip_probe, prepared=prepared_spec)
 
     if not DRY_RUN:
         state.setdefault("installedAt", today.isoformat())

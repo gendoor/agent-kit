@@ -104,10 +104,12 @@ class InstallerComponentTests(unittest.TestCase):
                     "install", str(project), "--no-mempalace", "--skip-probe", *options,
                 ])
                 with patch.object(kit, "install_base") as base, \
+                     patch.object(kit, "prepare_spec_install") as prepare, \
                      patch.object(kit, "install_spec", return_value="0.9.2") as spec, \
                      contextlib.redirect_stdout(io.StringIO()):
                     self.assertEqual(args.func(args), 0)
                 self.assertEqual(base.call_count, int("base" in expected))
+                self.assertEqual(prepare.call_count, int("spec" in expected))
                 self.assertEqual(spec.call_count, int("spec" in expected))
                 state = json.loads((project / ".agent-kit.json").read_text(encoding="utf-8"))
                 self.assertEqual(state["components"], expected)

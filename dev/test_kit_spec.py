@@ -211,6 +211,48 @@ class SpecInstallerTests(unittest.TestCase):
             self.install()
         self.assertEqual(snapshot(self.project), before)
 
+    def test_root_yaml_version_variants_use_dynamic_configuration_contract(self):
+        variants = (
+            "version: {version}\nrunners: {{}}\n",
+            "'version' : {version} # Контракт\nrunners: {{}}\n",
+            '"version"\t:\t{version}\t# Контракт\r\nrunners: {{}}\r\n',
+            '\ufeff# Конфигурация\r\n---\r\n\r\n  "version" : {version} # Контракт\r\n  runners: {{}}\r\n...\r\n',
+            "    # Комментарий\n  runners:\n    version: 1\n  'version' : {version}  \n",
+            "runners:\n  version: 1\nversion : {version}\n",
+        )
+        for version in (CONTRACTS["configuration"], CONTRACTS["configuration"] + 7):
+            self.contracts["configuration"] = version
+            for template in variants:
+                content = template.format(version=version)
+                with self.subTest(version=version, content=content):
+                    path = put(self.project, ".focused-spec/config.yaml", content)
+                    self.install()
+                    self.assertEqual(path.read_bytes(), content.encode("utf-8"))
+
+    def test_duplicate_nested_old_or_malformed_root_version_preserves_project(self):
+        version = self.contracts["configuration"]
+        variants = (
+            f'version: {version}\n"version" : {version}\n',
+            f"  'version': {version}\n  version : {version - 1}\n",
+            f"version: неверно\n'version': {version}\n",
+            f"version: {version - 1}\nrunners:\n  version: {version}\n",
+            f"runners:\n  version: {version}\n",
+            f'version: "{version}"\n',
+            f"version: {version}# Не комментарий YAML\n",
+            f"version: {version}.0\n",
+            f"version: [{version}]\n",
+            "version:\n",
+            "version: неверно\n",
+            "# Только комментарий\n---\n...\n",
+        )
+        for content in variants:
+            with self.subTest(content=content):
+                put(self.project, ".focused-spec/config.yaml", content)
+                before = snapshot(self.project)
+                with self.assertRaisesRegex(kit.KitError, "несовместим"):
+                    self.install()
+                self.assertEqual(snapshot(self.project), before)
+
     def test_active_config_and_installed_cli_contracts_are_checked_before_npm_update(self):
         fake_package(self.project)
         config = put(self.project, ".focused-spec/config.yaml", f"version: {self.contracts['configuration']}\nrunners: {{}}\n")
@@ -353,6 +395,91 @@ class SpecInstallerTests(unittest.TestCase):
                 self.assertEqual(snapshot(self.project), before)
                 if lock:
                     (self.project / lock).unlink()
+
+    def assert_combined_failure_before_base(self, message, tools=("node", "npm")):
+        put(self.project, "AGENTS.md", "# Инструкции проекта\n")
+        before = snapshot(self.project)
+        args = kit.build_parser().parse_args(["install", str(self.project), "--no-mempalace"])
+        with patch.object(kit, "node_tools", return_value=tools), \
+             patch.object(kit.subprocess, "run", side_effect=self.fake_run) as run, \
+             patch.object(kit, "install_base") as base, self.assertRaisesRegex(kit.KitError, message):
+            args.func(args)
+        base.assert_not_called()
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertFalse(any(project_install(command) for command in commands))
+        self.assertEqual(snapshot(self.project), before)
+        return commands
+
+    def test_combined_missing_node_fails_before_base(self):
+        self.assertEqual(self.assert_combined_failure_before_base("Node.js", tools=None), [])
+
+    def test_combined_incompatible_latest_root_config_fails_before_base(self):
+        put(self.project, ".focused-spec/config.yaml", f"version: {self.contracts['configuration']}\n")
+        self.contracts["configuration"] += 1
+        self.latest_version = "9.2.0"
+        commands = self.assert_combined_failure_before_base("несовместим.*config.yaml")
+        self.assertTrue(any(f"focused-spec@{self.latest_version}" in command for command in commands))
+
+    def test_combined_custom_integration_conflict_fails_before_base(self):
+        put(self.project, SKILL, "Свой загрузчик\n")
+        commands = self.assert_combined_failure_before_base("конфликт пользовательской интеграции")
+        self.assertTrue(any("init" in command and "--dry-run" in command for command in commands))
+
+    def test_combined_invalid_latest_workflow_fails_before_base(self):
+        original_run = self.fake_run
+
+        def invalid_workflow(command, **kwargs):
+            if "instructions" in command:
+                return subprocess.CompletedProcess(command, 0, json.dumps({**WORKFLOW, "content": ""}), "")
+            return original_run(command, **kwargs)
+
+        self.fake_run = invalid_workflow
+        self.assert_combined_failure_before_base("focused-spec instructions")
+
+    def test_combined_prepares_once_before_base_for_existing_and_missing_target(self):
+        for exists in (True, False):
+            with self.subTest(exists=exists):
+                self.project = Path(self.temp.name) / str(exists)
+                if exists:
+                    self.project.mkdir()
+                commands = []
+                original_run = self.fake_run
+
+                def record(command, **kwargs):
+                    if command[0] == "node":
+                        self.assertTrue(Path(kwargs["cwd"]).is_dir())
+                    commands.append(command)
+                    return original_run(command, **kwargs)
+
+                def base_install(project, *args):
+                    self.assertEqual(snapshot(project), {})
+                    self.assertEqual(sum("version" in command and command[0] == "node" for command in commands), 1)
+                    self.assertEqual(sum("instructions" in command for command in commands), 1)
+                    self.assertEqual(sum("init" in command and "--dry-run" in command for command in commands), 1)
+                    self.assertFalse(any(project_install(command) for command in commands))
+                    put(project, "AGENTS.md", "# Файлы base\n")
+
+                args = kit.build_parser().parse_args(["install", str(self.project), "--no-mempalace"])
+                with patch.object(kit, "node_tools", return_value=("node", "npm")) as tools, \
+                     patch.object(kit.subprocess, "run", side_effect=record), \
+                     patch.object(kit, "install_base", side_effect=base_install) as base:
+                    self.assertEqual(args.func(args), 0)
+                tools.assert_called_once()
+                base.assert_called_once()
+                self.assertEqual(sum(command[:2] == ["npm", "view"] for command in commands), 1)
+                self.assertEqual(sum("--prefix" in command for command in commands), 1)
+                self.assertEqual(sum(project_install(command) for command in commands), 1)
+                self.assert_latest_manifest_and_lock()
+
+    def test_combined_dry_run_without_node_has_no_downloads_or_target_creation(self):
+        target = self.project / "new"
+        args = kit.build_parser().parse_args(["install", str(target), "--no-mempalace", "--dry-run"])
+        with patch.object(kit, "node_tools", return_value=None), \
+             patch.object(kit.subprocess, "run") as run, patch.object(kit, "install_base") as base:
+            self.assertEqual(args.func(args), 0)
+        base.assert_called_once()
+        run.assert_not_called()
+        self.assertFalse(target.exists())
 
     def test_init_rejects_incomplete_or_forged_success_reports(self):
         cli = fake_package(self.project)
