@@ -27,7 +27,7 @@
 | Провайдер | Регистрация |
 | --- | --- |
 | ApiClo | [apiclo.com](https://apiclo.com/r/10OEUU5avO) |
-| ExCash | [excash.org](https://excash.org/?ref=REF-H9Z4FX) |
+| ExCash | [excash.org](https://excash.org/?ref=REF-EK7WT4) |
 | CloseRouter | [closerouter.dev](https://closerouter.dev/?ref=0f1e2dcdad28665c) |
 | Codex Sale | [codex.sale](https://codex.sale/register?ref=cocmefirst) |
 | ClaudeHub | [app.claudehub.fun](https://app.claudehub.fun/r/P93EN9) |
