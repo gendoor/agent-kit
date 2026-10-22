@@ -25,7 +25,7 @@
 Для регистрации можно использовать реферальные ссылки автора:
 
 | Провайдер | Регистрация |
-| --- | --- | --- |
+| --- | --- |
 | ApiClo | [apiclo.com](https://apiclo.com/r/10OEUU5avO) |
 | ExCash | [excash.org](https://excash.org/?ref=REF-H9Z4FX) |
 | CloseRouter | [closerouter.dev](https://closerouter.dev/?ref=0f1e2dcdad28665c) |
