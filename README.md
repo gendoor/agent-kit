@@ -24,14 +24,14 @@
 
 Для регистрации можно использовать реферальные ссылки автора:
 
-| Провайдер | Регистрация | Дополнительно |
+| Провайдер | Регистрация |
 | --- | --- | --- |
-| ApiClo | [apiclo.com](https://apiclo.com/r/10OEUU5avO) | |
-| ExCash | [excash.org](https://excash.org/?ref=REF-H9Z4FX) | Для доступа к ИИ в личном кабинете откройте «Настройки → Инвайт-коды» и введите `INV-YYRBPE` |
-| CloseRouter | [closerouter.dev](https://closerouter.dev/?ref=0f1e2dcdad28665c) | |
-| Codex Sale | [codex.sale](https://codex.sale/register?ref=cocmefirst) | |
-| ClaudeHub | [app.claudehub.fun](https://app.claudehub.fun/r/P93EN9) | |
-| CheapVibeCode | [cheapvibecode.ru](https://cheapvibecode.ru/ref/GSP4L66MA8) | |
+| ApiClo | [apiclo.com](https://apiclo.com/r/10OEUU5avO) |
+| ExCash | [excash.org](https://excash.org/?ref=REF-H9Z4FX) |
+| CloseRouter | [closerouter.dev](https://closerouter.dev/?ref=0f1e2dcdad28665c) |
+| Codex Sale | [codex.sale](https://codex.sale/register?ref=cocmefirst) |
+| ClaudeHub | [app.claudehub.fun](https://app.claudehub.fun/r/P93EN9) |
+| CheapVibeCode | [cheapvibecode.ru](https://cheapvibecode.ru/ref/GSP4L66MA8) |
 
 Регистрация не подключает провайдера автоматически: настройте его в OpenCode
 и сверьте доступные модели с маршрутами в `.omo/omo.jsonc`.
