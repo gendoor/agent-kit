@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -34,6 +35,18 @@ MEMPALACE_VERSION = "3.9.0"
 EMBEDDING_MODEL = "embeddinggemma"
 MIN_VENV_PYTHON = (3, 12)
 DEFAULT_OMO = "oh-my-openagent@4.19.4"
+# Доработки OMO, которые применяются к пакету в кэше OpenCode после установки.
+# Ключ — спецификатор плагина из opencode.json; применяется только к файлу
+# с хешем base, результат обязан совпасть с patched.
+OMO_PATCHES = {
+    "oh-my-openagent@4.19.4": {
+        "title": "поддержка моделей GPT-6",
+        "diff": "oh-my-openagent-4.19.4-gpt6.diff",
+        "file": "dist/index.js",
+        "base": "e522d513a08d0a6871129dbf3d9c3a79e4871693997fbf34190c4d3fa3d6b4b5",
+        "patched": "119a8ba364a08bd6f2719cc10dcf2ddf70d30acf1daafa13eebb06cf108965b4",
+    },
+}
 FOCUSED_SPEC_TAG = "latest"
 MIN_NODE = (22, 16)
 SPEC_SCRIPTS = {
@@ -365,6 +378,137 @@ def merge_omo(project: Path, layers: list) -> None:
     write_text(path, out)
     shown = ", ".join(added[:6]) + (f" и еще {len(added) - 6}" if len(added) > 6 else "")
     log("update" if raw else "create", f".omo/omo.jsonc: {shown}")
+
+
+# ---------------------------------------------------------------- доработка OMO в кэше OpenCode
+
+OMO_PLUGIN_RE = re.compile(r"^oh-my-(openagent|opencode)(@|$)")
+
+
+def opencode_cache_dir() -> Path:
+    """Каталог кэша OpenCode, как в xdg-basedir: XDG_CACHE_HOME или ~/.cache (и в Windows)."""
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "opencode"
+
+
+def omo_package_dir(spec: str) -> tuple[Path, Path]:
+    """Каталог установки плагина в кэше OpenCode и каталог самого пакета.
+
+    OpenCode (Npm.add) ставит npm-плагин в <кэш>/packages/<спецификатор> и не
+    переустанавливает его, пока существует node_modules/<имя>.
+    """
+    name = spec.rsplit("@", 1)[0] if spec.rfind("@") > 0 else spec
+    if IS_WINDOWS:
+        spec = "".join("_" if c in '<>:"|?*' or ord(c) < 32 else c for c in spec)
+    root = opencode_cache_dir() / "packages" / spec
+    return root, root / "node_modules" / name
+
+
+def project_omo_spec(project: Path, default: str) -> str:
+    """Плагин OMO, фактически подключенный в opencode.json проекта."""
+    try:
+        config = json.loads(read_text(project / "opencode.json").lstrip("\ufeff"))
+    except (OSError, json.JSONDecodeError):
+        return default
+    plugins = config.get("plugin") if isinstance(config, dict) else None
+    for plugin in plugins if isinstance(plugins, list) else []:
+        if isinstance(plugin, str) and OMO_PLUGIN_RE.match(plugin):
+            return plugin
+    return default
+
+
+def apply_unified_diff(data: bytes, diff: str) -> bytes:
+    """Применяет unified diff без смещений и нечеткого поиска: контекст обязан совпасть."""
+    lines = data.decode("utf-8").split("\n")
+    out, pos = [], 0
+    hunk_re = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
+    diff_lines = diff.replace("\r\n", "\n").split("\n")
+    i = 0
+    while i < len(diff_lines):
+        match = hunk_re.match(diff_lines[i])
+        i += 1
+        if not match:
+            continue
+        start = int(match.group(1)) - (0 if match.group(2) == "0" else 1)
+        if start < pos:
+            raise KitError("доработка OMO: блоки diff перекрываются")
+        out += lines[pos:start]
+        pos = start
+        while i < len(diff_lines) and diff_lines[i][:1] in (" ", "-", "+", "\\"):
+            line = diff_lines[i]
+            i += 1
+            kind, text = line[:1], line[1:]
+            if kind == "\\":
+                continue
+            if kind in (" ", "-"):
+                if pos >= len(lines) or lines[pos] != text:
+                    raise KitError(f"доработка OMO: строка {pos + 1} не совпадает с контекстом diff")
+                pos += 1
+            if kind in (" ", "+"):
+                out.append(text)
+    out += lines[pos:]
+    return "\n".join(out).encode("utf-8")
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def install_omo_cache(root: Path, spec: str) -> None:
+    """Ставит плагин в кэш OpenCode так же, как сам OpenCode: без скриптов, точная версия."""
+    npm = shutil.which("npm")
+    if npm is None:
+        raise KitError("npm не найден: OMO не предустановлен. Запустите opencode в проекте один раз "
+                       "и повторите установку agent-kit, чтобы применить доработку")
+    created = not root.exists()
+    root.mkdir(parents=True, exist_ok=True)
+    log("npm", f"{spec} -> {root}")
+    result = subprocess.run([npm, "install", "--prefix", str(root), "--ignore-scripts", "--save-exact",
+                             "--no-audit", "--no-fund", "--loglevel=error", spec],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        if created:
+            shutil.rmtree(root, ignore_errors=True)
+        raise KitError(f"npm install {spec} завершился с кодом {result.returncode}\n"
+                       + (result.stdout + result.stderr)[-2000:])
+
+
+def patch_omo(spec: str) -> None:
+    """Применяет доработку комплекта к пакету OMO в кэше OpenCode (идемпотентно)."""
+    patch = OMO_PATCHES.get(spec)
+    if patch is None:
+        log("skip", f"для {spec} доработок в комплекте нет")
+        return
+    root, package = omo_package_dir(spec)
+    target = package / patch["file"]
+    log("info", f"{patch['title']}: {target}")
+    if not target.is_file():
+        if DRY_RUN:
+            log("dry-run", f"npm install {spec} в кэш OpenCode и применение {patch['diff']}")
+            return
+        install_omo_cache(root, spec)
+        if not target.is_file():
+            raise KitError(f"после npm install не найден {target}")
+    data = target.read_bytes()
+    digest = sha256(data)
+    if digest == patch["patched"]:
+        log("ok", "доработка уже применена")
+        return
+    if digest != patch["base"]:
+        log("warn", f"{patch['file']} отличается от исходного {spec} и от доработанного: "
+                    "файл не изменяется, проверьте пакет в кэше вручную")
+        return
+    patched = apply_unified_diff(data, read_text(TEMPLATE / "omo" / "patches" / patch["diff"]))
+    if sha256(patched) != patch["patched"]:
+        raise KitError("доработка OMO: результат не совпал с ожидаемым хешем; файл не изменен")
+    if DRY_RUN:
+        log("dry-run", f"применение {patch['diff']}")
+        return
+    backup(target)
+    tmp = target.with_name(target.name + f".tmp-{STAMP}")
+    tmp.write_bytes(patched)
+    shutil.copymode(target, tmp)
+    os.replace(tmp, target)
+    log("update", f"{patch['file']}: {patch['diff']}")
 
 
 # ---------------------------------------------------------------- Mempalace
@@ -1194,6 +1338,8 @@ def cmd_install(args: argparse.Namespace) -> int:
         if args.omo != "none" and not args.no_omo_profile:
             hints.append("Подключите в OpenCode провайдеров из .omo/omo.jsonc (opencode auth login) "
                          "или замените их маршрутами своих провайдеров.")
+        if args.omo != "none" and not args.no_omo_patch:
+            hints.append("Перезапустите уже открытые сессии OpenCode, чтобы загрузить доработанный OMO.")
         hints += ["Заполните раздел «Проект» в AGENTS.md (вне блоков agent-kit).",
                   f"Запустите opencode в {project}: MCP mempalace и OMO подключатся автоматически.",
                   "Проверка: opencode mcp list"]
@@ -1251,6 +1397,16 @@ def install_base(project: Path, args: argparse.Namespace, variables: dict, venv_
     if args.omo != "none" and not args.no_omo_profile:
         step("Профиль OMO в .omo/omo.jsonc (модели агентов и категорий; значения проекта не меняются)")
         merge_omo(project, [TEMPLATE / "omo" / "profile.json"])
+
+    if args.omo != "none" and not args.no_omo_patch:
+        spec = project_omo_spec(project, args.omo)
+        step(f"Доработка OMO в кэше OpenCode ({spec})")
+        try:
+            patch_omo(spec)
+        except (KitError, OSError) as exc:
+            # Остальная установка не зависит от доработки: сообщаем и продолжаем.
+            log("warn", f"доработка не применена: {exc}")
+            log("warn", "повторите установку agent-kit, когда причина будет устранена")
 
     if not args.no_mempalace:
         ensure_venv(project, args, venv_python)
@@ -1351,6 +1507,8 @@ def cmd_wizard(_args: argparse.Namespace) -> int:
     print(f"  имя:          {name}")
     print(f"  крыло:        {wing}")
     print(f"  OMO:          {omo}")
+    patch = OMO_PATCHES.get(project_omo_spec(project, omo)) if omo != "none" else None
+    print(f"  доработка:    {patch['title'] + ' (кэш OpenCode)' if patch else 'нет'}")
     print(f"  окружение:    {'в проекте (.venv-mempalace)' if local else default_venv_dir()}")
     print(f"  focused-spec: {FOCUSED_SPEC_TAG if spec else 'нет'}")
     print("  Существующие файлы проекта не перезаписываются; измененные файлы сохраняются как *.bak-<время>.")
@@ -1397,6 +1555,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-mempalace", action="store_true", help="не устанавливать Mempalace (только файлы)")
     p.add_argument("--no-omo-profile", action="store_true",
                    help="не добавлять профиль моделей OMO в .omo/omo.jsonc (использовать ~/.omo/omo.jsonc)")
+    p.add_argument("--no-omo-patch", action="store_true",
+                   help="не применять доработку комплекта к пакету OMO в кэше OpenCode (поддержка GPT-6)")
     p.add_argument("--no-spec", action="store_true",
                     help=f"не устанавливать исполняемые спецификации focused-spec {FOCUSED_SPEC_TAG}")
     p.add_argument("--only", metavar="КОМПОНЕНТЫ",

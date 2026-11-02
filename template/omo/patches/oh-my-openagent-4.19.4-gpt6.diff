@@ -1,0 +1,235 @@
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -28147,6 +28147,10 @@
+   const modelName = extractModelName2(model).toLowerCase();
+   return modelName.includes("gpt-5.6") || modelName.includes("gpt-5-6");
+ }
++function isGpt6Model(model) {
++  const modelName = extractModelName2(model).toLowerCase();
++  return modelName.includes("gpt-6");
++}
+ 
+ // packages/omo-opencode/src/tools/delegate-task/openai-categories.ts
+ var ULTRABRAIN_CATEGORY_PROMPT_APPEND = `<Category_Context>
+@@ -28212,7 +28216,7 @@
+ **Status cadence: sparse.** The user is not on the other side of this conversation; the orchestrator is, and they will synthesize your progress. Send commentary only at meaningful phase transitions (starting exploration, starting implementation, starting verification, hitting a genuine blocker). Do not narrate every tool call; silence during focused work is expected.
+ </Category_Context>`;
+ function resolveDeepCategoryPromptAppend(model) {
+-  if (model && (isGpt5_5Model(model) || isGpt5_6Model(model))) {
++  if (model && (isGpt5_5Model(model) || isGpt5_6Model(model) || isGpt6Model(model))) {
+     return DEEP_CATEGORY_PROMPT_APPEND_GPT_5_5;
+   }
+   return DEEP_CATEGORY_PROMPT_APPEND;
+@@ -38077,7 +38081,7 @@
+         output: 8192
+       }
+     },
+-    "gpt-5.6-sol": {
++  "gpt-5.6-sol": {
+       id: "gpt-5.6-sol",
+       family: "gpt-sol",
+       reasoning: true,
+@@ -38096,8 +38100,88 @@
+         context: 372000,
+         input: 922000,
+         output: 128000
+-      }
+-    },
++    }
++  },
++  "gpt-6-sol": {
++    id: "gpt-6-sol",
++    family: "gpt",
++    reasoning: true,
++    temperature: false,
++    toolCall: true,
++    modalities: {
++      input: ["text", "image", "pdf"],
++      output: ["text"]
++    },
++    limit: {
++      context: 1050000,
++      input: 922000,
++      output: 128000
++    }
++  },
++  "gpt-6-sol-fast": {
++    id: "gpt-6-sol-fast",
++    family: "gpt",
++    reasoning: true,
++    temperature: false,
++    toolCall: true,
++    modalities: {
++      input: ["text", "image", "pdf"],
++      output: ["text"]
++    },
++    limit: {
++      context: 1050000,
++      input: 922000,
++      output: 128000
++    }
++  },
++  "gpt-6-luna": {
++    id: "gpt-6-luna",
++    family: "gpt-nano",
++    reasoning: true,
++    temperature: false,
++    toolCall: true,
++    modalities: {
++      input: ["text", "image", "pdf"],
++      output: ["text"]
++    },
++    limit: {
++      context: 1050000,
++      input: 922000,
++      output: 128000
++    }
++  },
++  "gpt-6-luna-fast": {
++    id: "gpt-6-luna-fast",
++    family: "gpt-nano",
++    reasoning: true,
++    temperature: false,
++    toolCall: true,
++    modalities: {
++      input: ["text", "image", "pdf"],
++      output: ["text"]
++    },
++    limit: {
++      context: 1050000,
++      input: 922000,
++      output: 128000
++    }
++  },
++  "gpt-6-sol-fast": {
++    id: "gpt-6-sol-fast",
++    family: "gpt",
++    reasoning: true,
++    temperature: false,
++    toolCall: true,
++    modalities: {
++      input: ["text", "image", "pdf"],
++      output: ["text"]
++    },
++    limit: {
++      context: 1050000,
++      input: 922000,
++      output: 128000
++    }
++  },
+     "gemini-3.1-flash-lite-preview": {
+       id: "gemini-3.1-flash-lite-preview",
+       family: "gemini-flash-lite",
+@@ -107385,6 +107469,8 @@
+ function getNativeSisyphusGptVariant(model) {
+   if (isGpt5_5Model(model.modelID))
+     return "medium";
++  if (isGpt6Model(model.modelID))
++    return "high";
+   const chain = AGENT_MODEL_REQUIREMENTS["sisyphus"]?.fallbackChain ?? [];
+   const exactMatch = chain.find((entry) => entry.providers.includes(model.providerID) && entry.model === model.modelID);
+   if (exactMatch?.variant !== undefined) {
+@@ -107398,13 +107484,13 @@
+       const rawAgent = input.agent ?? getSessionAgent(input.sessionID) ?? "";
+       const agentKey = getAgentConfigKey(rawAgent);
+       const modelID = input.model?.modelID;
+-      if (agentKey === "sisyphus" && input.model && modelID && isGptNativeSisyphusModel(modelID) && output?.message && output.message.variant === undefined) {
++      if (agentKey === "sisyphus" && input.model && modelID && (isGptNativeSisyphusModel(modelID) || isGpt6Model(modelID)) && output?.message && output.message.variant === undefined) {
+         const variant = getNativeSisyphusGptVariant(input.model);
+         if (variant !== undefined) {
+           output.message.variant = variant;
+         }
+       }
+-      if (agentKey === "sisyphus" && modelID && isGptModel(modelID) && !isGptNativeSisyphusModel(modelID)) {
++      if (agentKey === "sisyphus" && modelID && isGptModel(modelID) && !isGptNativeSisyphusModel(modelID) && !isGpt6Model(modelID)) {
+         showToast(ctx, input.sessionID);
+         input.agent = resolveRegisteredAgentName("hephaestus") ?? "hephaestus";
+         if (output?.message) {
+@@ -152242,7 +152328,7 @@
+ // packages/omo-opencode/src/agents/frontier-tool-schema-guard.ts
+ var FRONTIER_TOOL_SCHEMA_NAMES = ["grep", "glob"];
+ function getFrontierToolSchemaPermission(model) {
+-  return isClaudeOpus47OrLaterModel(model) || isGpt5_5Model(model) || isGpt5_6Model(model) ? { grep: "deny", glob: "deny" } : {};
++  return isClaudeOpus47OrLaterModel(model) || isGpt5_5Model(model) || isGpt5_6Model(model) || isGpt6Model(model) ? { grep: "deny", glob: "deny" } : {};
+ }
+ function applyFrontierToolSchemaPermission(permission, model, explicitPermission, explicitTools) {
+   if (!permission)
+@@ -155230,10 +155316,14 @@
+ var GPT_PROMPT_IDENTITIES = {
+   "gpt-5.5": "GPT-5.5",
+   "gpt-5.6-sol": "GPT-5.6 Sol",
++  "gpt-6-sol": "GPT-6 Sol",
+   "gpt-family": "a GPT-family model"
+ };
+ function getGptPromptIdentityKey(model) {
+   const modelID = model?.split("/").at(-1)?.toLowerCase();
++  if (modelID?.includes("gpt-6-sol")) {
++    return "gpt-6-sol";
++  }
+   if (modelID?.includes("gpt-5.6-sol") || modelID?.includes("gpt-5-6-sol")) {
+     return "gpt-5.6-sol";
+   }
+@@ -156515,7 +156605,7 @@
+     return "kimi-k2-7";
+   if (isKimiK2Model(model))
+     return "kimi-k2-6";
+-  if (isGpt5_5Model(model) || isGpt5_6Model(model))
++  if (isGpt5_5Model(model) || isGpt5_6Model(model) || isGpt6Model(model))
+     return "gpt-5-5";
+   if (isGptNativeSisyphusModel(model))
+     return "gpt-5-4";
+@@ -156965,7 +157055,7 @@
+     ...restrictions,
+     prompt: ORACLE_DEFAULT_PROMPT
+   };
+-  if (isGpt5_6Model(model)) {
++  if (isGpt5_6Model(model) || isGpt6Model(model)) {
+     return {
+       ...base,
+       prompt: ORACLE_GPT_5_5_PROMPT,
+@@ -158386,7 +158476,7 @@
+     ...restrictions,
+     prompt: MOMUS_DEFAULT_PROMPT
+   };
+-  if (isGpt5_6Model(model)) {
++  if (isGpt5_6Model(model) || isGpt6Model(model)) {
+     return {
+       ...base,
+       prompt: MOMUS_GPT_5_6_PROMPT,
+@@ -159438,6 +159528,7 @@
+ var GPT_5_4_RE = /^gpt-5[.-]4(?:$|[.-])/i;
+ var GPT_5_5_RE = /^gpt-5[.-]5(?:$|[.-])/i;
+ var GPT_5_6_RE = /^gpt-5[.-]6(?:$|[.-])/i;
++var GPT_6_RE = /^gpt-6(?:$|[.-])/i;
+ 
+ class UnsupportedHephaestusModelError extends Error {
+   model;
+@@ -159454,7 +159545,7 @@
+   if (!model)
+     return false;
+   const modelName = extractModelName3(model);
+-  return GPT_5_3_CODEX_RE.test(modelName) || GPT_5_4_RE.test(modelName) || GPT_5_5_RE.test(modelName) || GPT_5_6_RE.test(modelName);
++  return GPT_5_3_CODEX_RE.test(modelName) || GPT_5_4_RE.test(modelName) || GPT_5_5_RE.test(modelName) || GPT_5_6_RE.test(modelName) || GPT_6_RE.test(modelName);
+ }
+ function assertHephaestusSupportedModel(model) {
+   if (!isHephaestusSupportedModel(model)) {
+@@ -159463,7 +159554,7 @@
+ }
+ function getHephaestusPromptSource(model) {
+   assertHephaestusSupportedModel(model);
+-  if (model && isGpt5_6Model(model)) {
++  if (model && (isGpt5_6Model(model) || isGpt6Model(model))) {
+     return "gpt-5-6";
+   }
+   if (model && isGpt5_5Model(model)) {
+@@ -160878,8 +160969,8 @@
+   if (model && isKimiK2Model(model))
+     return "kimi-k2";
+   if (model && isGptModel(model)) {
+-    if (isGpt5_5Model(model) || isGpt5_6Model(model))
+-      return "gpt-5-5";
++  if (isGpt5_5Model(model) || isGpt5_6Model(model) || isGpt6Model(model))
++    return "gpt-5-5";
+     const lower = model.toLowerCase();
+     if (lower.includes("gpt-5.4") || lower.includes("gpt-5-4"))
+       return "gpt-5-4";

@@ -89,6 +89,78 @@ class OmoProfileTests(unittest.TestCase):
             self.assertFalse(project.exists())
 
 
+class OmoPatchTests(unittest.TestCase):
+    BASE = b"a\nb\nc\nd\n"
+    PATCHED = b"a\nB\nc\nd\ne\n"
+    DIFF = "--- a/dist/index.js\n+++ b/dist/index.js\n@@ -1,4 +1,5 @@\n a\n-b\n+B\n c\n d\n+e\n \n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "template/omo/patches").mkdir(parents=True)
+        (root / "template/omo/patches/test.diff").write_text(self.DIFF, encoding="utf-8")
+        self.target = root / "cache/opencode/packages/omo@1.0.0/node_modules/omo/dist/index.js"
+        self.target.parent.mkdir(parents=True)
+        self.patches = {"omo@1.0.0": {"title": "проверка", "diff": "test.diff", "file": "dist/index.js",
+                                      "base": kit.sha256(self.BASE), "patched": kit.sha256(self.PATCHED)}}
+        self.stack = contextlib.ExitStack()
+        self.stack.enter_context(patch.object(kit, "TEMPLATE", root / "template"))
+        self.stack.enter_context(patch.object(kit, "OMO_PATCHES", self.patches))
+        self.stack.enter_context(patch.dict("os.environ", {"XDG_CACHE_HOME": str(root / "cache")}))
+        self.stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+
+    def tearDown(self):
+        self.stack.close()
+        self.tmp.cleanup()
+
+    def test_shipped_patch_present(self):
+        self.stack.close()
+        meta = kit.OMO_PATCHES[kit.DEFAULT_OMO]
+        self.assertTrue((KIT_ROOT / "template/omo/patches" / meta["diff"]).is_file())
+
+    def test_applies_once_with_backup(self):
+        self.target.write_bytes(self.BASE)
+        kit.patch_omo("omo@1.0.0")
+        self.assertEqual(self.target.read_bytes(), self.PATCHED)
+        backups = list(self.target.parent.glob("index.js.bak-*"))
+        self.assertEqual([p.read_bytes() for p in backups], [self.BASE])
+        kit.patch_omo("omo@1.0.0")
+        self.assertEqual(len(list(self.target.parent.glob("index.js.bak-*"))), 1)
+
+    def test_unknown_content_is_kept(self):
+        self.target.write_bytes(b"x\n")
+        kit.patch_omo("omo@1.0.0")
+        self.assertEqual(self.target.read_bytes(), b"x\n")
+
+    def test_wrong_result_hash_aborts(self):
+        self.patches["omo@1.0.0"]["patched"] = "0" * 64
+        self.target.write_bytes(self.BASE)
+        with self.assertRaises(kit.KitError):
+            kit.patch_omo("omo@1.0.0")
+        self.assertEqual(self.target.read_bytes(), self.BASE)
+
+    def test_context_mismatch_raises(self):
+        with self.assertRaises(kit.KitError):
+            kit.apply_unified_diff(b"a\nX\nc\nd\n", self.DIFF)
+
+    def test_dry_run_does_not_write(self):
+        self.target.write_bytes(self.BASE)
+        kit.DRY_RUN = True
+        try:
+            kit.patch_omo("omo@1.0.0")
+        finally:
+            kit.DRY_RUN = False
+        self.assertEqual(self.target.read_bytes(), self.BASE)
+
+    def test_project_plugin_spec_wins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self.assertEqual(kit.project_omo_spec(project, "omo@1.0.0"), "omo@1.0.0")
+            (project / "opencode.json").write_text(
+                json.dumps({"plugin": ["other", "oh-my-openagent@4.18.0"]}), encoding="utf-8")
+            self.assertEqual(kit.project_omo_spec(project, "omo@1.0.0"), "oh-my-openagent@4.18.0")
+
+
 class InstallerComponentTests(unittest.TestCase):
     def test_components_and_default_installation(self):
         self.assertEqual(kit.COMPONENTS, ("base", "spec"))
