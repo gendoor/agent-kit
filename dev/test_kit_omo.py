@@ -78,6 +78,43 @@ class OmoProfileTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
             self.assertEqual(list(path.parent.glob("*.bak-*")), [])
 
+    def test_legacy_opus_route_is_migrated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            path = project / ".omo" / "omo.jsonc"
+            path.parent.mkdir()
+            original = {
+                "[opencode]": {
+                    "agents": {
+                        "sisyphus": {
+                            "model": "externcash/claude-opus-5-5",
+                            "fallback_models": [
+                                {"model": "externcash/claude-opus-5-5"},
+                                {"model": "local/fallback"},
+                            ],
+                        },
+                    },
+                    "categories": {
+                        "writing": {
+                            "models": [
+                                {"model": "externcash/claude-opus-5-5", "reasoning": "low"},
+                                {"model": "apiclo/claude-opus-5-5", "reasoning": "low"},
+                            ],
+                        },
+                    },
+                },
+            }
+            path.write_text(json.dumps(original, ensure_ascii=False), encoding="utf-8")
+            kit.merge_omo(project, [KIT_ROOT / "template/omo/profile.json"])
+            updated = json.loads(kit.strip_jsonc(kit.read_text(path)))
+            agent = updated["[opencode]"]["agents"]["sisyphus"]
+            self.assertEqual(agent["model"], "apiclo/claude-opus-5-5")
+            self.assertEqual(agent["fallback_models"], [{"model": "local/fallback"}])
+            self.assertEqual(updated["[opencode]"]["categories"]["writing"]["models"],
+                             [{"model": "apiclo/claude-opus-5-5", "reasoning": "low"}])
+            self.assertNotIn("externcash/claude-opus-5-5", path.read_text(encoding="utf-8"))
+            self.assertTrue(path.with_name(f"omo.jsonc.bak-{kit.STAMP}").is_file())
+
     def test_dry_run_does_not_create_project(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "new"

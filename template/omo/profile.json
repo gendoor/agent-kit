@@ -8,13 +8,9 @@
     },
     "agents": {
       "sisyphus": {
-        "model": "externcash/claude-opus-5-5",
+        "model": "apiclo/claude-opus-5-5",
         "reasoning": "high",
         "fallback_models": [
-          {
-            "model": "apiclo/claude-opus-5-5",
-            "reasoning": "high"
-          },
           {
             "model": "closerouter-anthropic/anthropic/claude-opus-5-5",
             "reasoning": "high"
@@ -162,13 +158,9 @@
         ]
       },
       "prometheus": {
-        "model": "externcash/claude-opus-5-5",
+        "model": "apiclo/claude-opus-5-5",
         "reasoning": "high",
         "fallback_models": [
-          {
-            "model": "apiclo/claude-opus-5-5",
-            "reasoning": "high"
-          },
           {
             "model": "closerouter-anthropic/anthropic/claude-opus-5-5",
             "reasoning": "high"
@@ -180,13 +172,9 @@
         ]
       },
       "metis": {
-        "model": "externcash/claude-opus-5-5",
+        "model": "apiclo/claude-opus-5-5",
         "reasoning": "high",
         "fallback_models": [
-          {
-            "model": "apiclo/claude-opus-5-5",
-            "reasoning": "high"
-          },
           {
             "model": "closerouter-anthropic/anthropic/claude-opus-5-5",
             "reasoning": "high"
@@ -239,11 +227,8 @@
         ]
       },
       "atlas": {
-        "model": "externcash/claude-opus-5-5",
+        "model": "apiclo/claude-opus-5-5",
         "fallback_models": [
-          {
-            "model": "apiclo/claude-opus-5-5"
-          },
           {
             "model": "closerouter-anthropic/anthropic/claude-sonnet-5-5"
           },
@@ -271,11 +256,8 @@
         ]
       },
       "sisyphus-junior": {
-        "model": "externcash/claude-opus-5-5",
+        "model": "apiclo/claude-opus-5-5",
         "fallback_models": [
-          {
-            "model": "apiclo/claude-opus-5-5"
-          },
           {
             "model": "closerouter-anthropic/anthropic/claude-sonnet-5-5"
           },
@@ -306,10 +288,6 @@
     "categories": {
       "visual-engineering": {
         "models": [
-          {
-            "model": "externcash/claude-opus-5-5",
-            "reasoning": "high"
-          },
           {
             "model": "apiclo/claude-opus-5-5",
             "reasoning": "high"
@@ -375,10 +353,6 @@
       "artistry": {
         "models": [
           {
-            "model": "externcash/claude-opus-5-5",
-            "reasoning": "high"
-          },
-          {
             "model": "apiclo/claude-opus-5-5",
             "reasoning": "high"
           },
@@ -438,10 +412,6 @@
             "reasoning": "high"
           },
           {
-            "model": "externcash/claude-opus-5-5",
-            "reasoning": "low"
-          },
-          {
             "model": "apiclo/claude-opus-5-5",
             "reasoning": "low"
           },
@@ -470,10 +440,6 @@
             "reasoning": "high"
           },
           {
-            "model": "externcash/claude-opus-5-5",
-            "reasoning": "high"
-          },
-          {
             "model": "apiclo/claude-opus-5-5",
             "reasoning": "high"
           },
@@ -499,10 +465,6 @@
         "models": [
           {
             "model": "closerouter/moonshotai/kimi-k3",
-            "reasoning": "low"
-          },
-          {
-            "model": "externcash/claude-opus-5-5",
             "reasoning": "low"
           },
           {

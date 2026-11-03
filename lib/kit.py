@@ -278,8 +278,75 @@ OMO_HEADER = """// Конфигурация OMO проекта: модели а�
 // личный ~/.omo/omo.jsonc: при совпадении ключей действуют значения отсюда.
 // Провайдеры из маршрутов должны быть подключены в OpenCode (opencode auth login);
 // недоступные маршруты замените своими. Повторная установка agent-kit добавляет
-// только отсутствующие ключи и не меняет значения проекта.
+// только отсутствующие ключи, кроме предусмотренных миграций устаревших маршрутов.
 """
+
+OMO_LEGACY_OPUS_MODEL = "externcash/claude-opus-5-5"
+OMO_PRIMARY_OPUS_MODEL = "apiclo/claude-opus-5-5"
+
+
+def migrate_omo_opus_routes(config: dict) -> bool:
+    """Убирает старый маршрут Opus из уже установленного профиля OMO."""
+    opencode = config.get("[opencode]")
+    if not isinstance(opencode, dict):
+        return False
+    changed = False
+
+    agents = opencode.get("agents")
+    if isinstance(agents, dict):
+        for agent in agents.values():
+            if not isinstance(agent, dict):
+                continue
+            legacy_migrated = False
+            if agent.get("model") == OMO_LEGACY_OPUS_MODEL:
+                agent["model"] = OMO_PRIMARY_OPUS_MODEL
+                changed = True
+                legacy_migrated = True
+            fallbacks = agent.get("fallback_models")
+            if not isinstance(fallbacks, list):
+                continue
+            seen = {agent.get("model")} if isinstance(agent.get("model"), str) else set()
+            migrated = []
+            for route in fallbacks:
+                if isinstance(route, dict) and route.get("model") == OMO_LEGACY_OPUS_MODEL:
+                    route = dict(route)
+                    route["model"] = OMO_PRIMARY_OPUS_MODEL
+                    changed = True
+                    legacy_migrated = True
+                model = route.get("model") if isinstance(route, dict) else None
+                if (legacy_migrated and model == OMO_PRIMARY_OPUS_MODEL and model in seen):
+                    changed = True
+                    continue
+                if isinstance(model, str):
+                    seen.add(model)
+                migrated.append(route)
+            if migrated != fallbacks:
+                agent["fallback_models"] = migrated
+
+    categories = opencode.get("categories")
+    if isinstance(categories, dict):
+        for category in categories.values():
+            if not isinstance(category, dict) or not isinstance(category.get("models"), list):
+                continue
+            migrated = []
+            seen = set()
+            legacy_migrated = False
+            for route in category["models"]:
+                if isinstance(route, dict) and route.get("model") == OMO_LEGACY_OPUS_MODEL:
+                    route = dict(route)
+                    route["model"] = OMO_PRIMARY_OPUS_MODEL
+                    changed = True
+                    legacy_migrated = True
+                model = route.get("model") if isinstance(route, dict) else None
+                if legacy_migrated and model == OMO_PRIMARY_OPUS_MODEL and model in seen:
+                    changed = True
+                    continue
+                if isinstance(model, str):
+                    seen.add(model)
+                migrated.append(route)
+            if migrated != category["models"]:
+                category["models"] = migrated
+    return changed
 
 
 def strip_jsonc(text: str) -> str:
@@ -361,10 +428,11 @@ def merge_omo(project: Path, layers: list) -> None:
             raise KitError(".omo/omo.jsonc должен содержать объект JSON")
     else:
         raw, config = "", {}
+    migrated = migrate_omo_opus_routes(config)
     added = []
     for layer in layers:
         added += fill_missing(config, json.loads(read_text(layer)))
-    if not added:
+    if not added and not migrated:
         log("ok", ".omo/omo.jsonc содержит профиль комплекта")
         return
     ordered = {key: config[key] for key in ("$schema", "[opencode]") if key in config}
@@ -376,8 +444,13 @@ def merge_omo(project: Path, layers: list) -> None:
             log("warn", ".omo/omo.jsonc: комментарии прежнего файла сохранены только в резервной копии")
         out = ("\ufeff" if raw.startswith("\ufeff") else "") + with_newline(out, newline_of(raw))
     write_text(path, out)
-    shown = ", ".join(added[:6]) + (f" и еще {len(added) - 6}" if len(added) > 6 else "")
-    log("update" if raw else "create", f".omo/omo.jsonc: {shown}")
+    details = []
+    if migrated:
+        details.append(f"маршрут {OMO_LEGACY_OPUS_MODEL} заменен на {OMO_PRIMARY_OPUS_MODEL}")
+    if added:
+        shown = ", ".join(added[:6]) + (f" и еще {len(added) - 6}" if len(added) > 6 else "")
+        details.append(shown)
+    log("update" if raw else "create", f".omo/omo.jsonc: {'; '.join(details)}")
 
 
 # ---------------------------------------------------------------- доработка OMO в кэше OpenCode
