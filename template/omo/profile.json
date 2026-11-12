@@ -186,11 +186,11 @@
         ]
       },
       "momus": {
-        "model": "externcash/gpt-5.6-terra",
+        "model": "externcash/gpt-6.1-terra",
         "reasoning": "high",
         "fallback_models": [
           {
-            "model": "closerouter/openai/gpt-5.6-terra",
+            "model": "closerouter/openai/gpt-6.1-terra",
             "reasoning": "high"
           },
           {
@@ -404,11 +404,11 @@
       "unspecified-low": {
         "models": [
           {
-            "model": "externcash/gpt-5.6-terra",
+            "model": "externcash/gpt-6.1-terra",
             "reasoning": "high"
           },
           {
-            "model": "closerouter/openai/gpt-5.6-terra",
+            "model": "closerouter/openai/gpt-6.1-terra",
             "reasoning": "high"
           },
           {
