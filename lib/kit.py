@@ -277,76 +277,15 @@ OMO_HEADER = """// Конфигурация OMO проекта: модели а�
 // (профиль agent-kit) и дополнения ролей. Файл проекта выше по приоритету, чем
 // личный ~/.omo/omo.jsonc: при совпадении ключей действуют значения отсюда.
 // Провайдеры из маршрутов должны быть подключены в OpenCode (opencode auth login);
-// недоступные маршруты замените своими. Повторная установка agent-kit добавляет
-// только отсутствующие ключи, кроме предусмотренных миграций устаревших маршрутов.
+// недоступные маршруты замените своими. При повторной установке agent-kit можно
+// заменить файл эталоном, добавить отсутствующие ключи или пропустить обновление.
 """
 
-OMO_LEGACY_OPUS_MODEL = "externcash/claude-opus-5-5"
-OMO_PRIMARY_OPUS_MODEL = "apiclo/claude-opus-5-5"
-
-
-def migrate_omo_opus_routes(config: dict) -> bool:
-    """Убирает старый маршрут Opus из уже установленного профиля OMO."""
-    opencode = config.get("[opencode]")
-    if not isinstance(opencode, dict):
-        return False
-    changed = False
-
-    agents = opencode.get("agents")
-    if isinstance(agents, dict):
-        for agent in agents.values():
-            if not isinstance(agent, dict):
-                continue
-            legacy_migrated = False
-            if agent.get("model") == OMO_LEGACY_OPUS_MODEL:
-                agent["model"] = OMO_PRIMARY_OPUS_MODEL
-                changed = True
-                legacy_migrated = True
-            fallbacks = agent.get("fallback_models")
-            if not isinstance(fallbacks, list):
-                continue
-            seen = {agent.get("model")} if isinstance(agent.get("model"), str) else set()
-            migrated = []
-            for route in fallbacks:
-                if isinstance(route, dict) and route.get("model") == OMO_LEGACY_OPUS_MODEL:
-                    route = dict(route)
-                    route["model"] = OMO_PRIMARY_OPUS_MODEL
-                    changed = True
-                    legacy_migrated = True
-                model = route.get("model") if isinstance(route, dict) else None
-                if (legacy_migrated and model == OMO_PRIMARY_OPUS_MODEL and model in seen):
-                    changed = True
-                    continue
-                if isinstance(model, str):
-                    seen.add(model)
-                migrated.append(route)
-            if migrated != fallbacks:
-                agent["fallback_models"] = migrated
-
-    categories = opencode.get("categories")
-    if isinstance(categories, dict):
-        for category in categories.values():
-            if not isinstance(category, dict) or not isinstance(category.get("models"), list):
-                continue
-            migrated = []
-            seen = set()
-            legacy_migrated = False
-            for route in category["models"]:
-                if isinstance(route, dict) and route.get("model") == OMO_LEGACY_OPUS_MODEL:
-                    route = dict(route)
-                    route["model"] = OMO_PRIMARY_OPUS_MODEL
-                    changed = True
-                    legacy_migrated = True
-                model = route.get("model") if isinstance(route, dict) else None
-                if legacy_migrated and model == OMO_PRIMARY_OPUS_MODEL and model in seen:
-                    changed = True
-                    continue
-                if isinstance(model, str):
-                    seen.add(model)
-                migrated.append(route)
-            if migrated != category["models"]:
-                category["models"] = migrated
-    return changed
+OMO_PROFILE_MODES = {
+    "replace": "перезаписать эталонным профилем (с резервной копией)",
+    "merge": "добавить только отсутствующие ключи",
+    "skip": "не создавать и не обновлять файл",
+}
 
 
 def strip_jsonc(text: str) -> str:
@@ -415,42 +354,45 @@ def fill_missing(target: dict, source: dict, path: str = "") -> list:
     return added
 
 
-def merge_omo(project: Path, layers: list) -> None:
-    """Сливает слои комплекта в .omo/omo.jsonc с приоритетом существующих значений проекта."""
+def merge_omo(project: Path, layers: list, mode: str = "merge") -> None:
+    """Заменяет профиль OMO эталоном, дополняет отсутствующие ключи или пропускает файл."""
+    if mode not in OMO_PROFILE_MODES:
+        raise KitError(f"неизвестный режим профиля OMO: {mode}")
+    if mode == "skip":
+        log("skip", ".omo/omo.jsonc: создание и обновление отключены")
+        return
     path = project / ".omo" / "omo.jsonc"
-    if path.exists():
-        raw = read_text(path)
+    exists = path.exists()
+    raw = read_text(path) if exists else ""
+    config = {}
+    if exists and mode == "merge":
         try:
             config = json.loads(strip_jsonc(raw.lstrip("\ufeff")))
         except json.JSONDecodeError as exc:
             raise KitError(f".omo/omo.jsonc не разобран ({exc}); добавьте профиль из template/omo вручную") from exc
         if not isinstance(config, dict):
             raise KitError(".omo/omo.jsonc должен содержать объект JSON")
-    else:
-        raw, config = "", {}
-    migrated = migrate_omo_opus_routes(config)
     added = []
     for layer in layers:
         added += fill_missing(config, json.loads(read_text(layer)))
-    if not added and not migrated:
+    if mode == "merge" and not added:
         log("ok", ".omo/omo.jsonc содержит профиль комплекта")
         return
     ordered = {key: config[key] for key in ("$schema", "[opencode]") if key in config}
     ordered |= {key: value for key, value in config.items() if key not in ordered}
     out = OMO_HEADER + json.dumps(ordered, ensure_ascii=False, indent=2) + "\n"
-    if raw:
+    out = ("\ufeff" if raw.startswith("\ufeff") else "") + with_newline(out, newline_of(raw))
+    if exists and raw == out:
+        log("ok", ".omo/omo.jsonc совпадает с эталонным профилем")
+        return
+    if exists:
         backup(path)
         if "//" in raw or "/*" in raw:
             log("warn", ".omo/omo.jsonc: комментарии прежнего файла сохранены только в резервной копии")
-        out = ("\ufeff" if raw.startswith("\ufeff") else "") + with_newline(out, newline_of(raw))
     write_text(path, out)
-    details = []
-    if migrated:
-        details.append(f"маршрут {OMO_LEGACY_OPUS_MODEL} заменен на {OMO_PRIMARY_OPUS_MODEL}")
-    if added:
-        shown = ", ".join(added[:6]) + (f" и еще {len(added) - 6}" if len(added) > 6 else "")
-        details.append(shown)
-    log("update" if raw else "create", f".omo/omo.jsonc: {'; '.join(details)}")
+    details = "замена эталонным профилем" if mode == "replace" else \
+        ", ".join(added[:6]) + (f" и еще {len(added) - 6}" if len(added) > 6 else "")
+    log("update" if exists else "create", f".omo/omo.jsonc: {details}")
 
 
 # ---------------------------------------------------------------- доработка OMO в кэше OpenCode
@@ -1408,7 +1350,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     step("Готово")
     hints = []
     if base:
-        if args.omo != "none" and not args.no_omo_profile:
+        if args.omo != "none" and args.omo_profile != "skip":
             hints.append("Подключите в OpenCode провайдеров из .omo/omo.jsonc (opencode auth login) "
                          "или замените их маршрутами своих провайдеров.")
         if args.omo != "none" and not args.no_omo_patch:
@@ -1467,9 +1409,9 @@ def install_base(project: Path, args: argparse.Namespace, variables: dict, venv_
     step("opencode.json (OMO и MCP mempalace)")
     merge_opencode(project, variables, args.omo)
 
-    if args.omo != "none" and not args.no_omo_profile:
-        step("Профиль OMO в .omo/omo.jsonc (модели агентов и категорий; значения проекта не меняются)")
-        merge_omo(project, [TEMPLATE / "omo" / "profile.json"])
+    if args.omo != "none":
+        step(f"Профиль OMO в .omo/omo.jsonc: {OMO_PROFILE_MODES[args.omo_profile]}")
+        merge_omo(project, [TEMPLATE / "omo" / "profile.json"], args.omo_profile)
 
     if args.omo != "none" and not args.no_omo_patch:
         spec = project_omo_spec(project, args.omo)
@@ -1564,11 +1506,24 @@ def cmd_wizard(_args: argparse.Namespace) -> int:
                 break
             print("  допустимы строчные латинские буквы, цифры и _, начиная с буквы или цифры")
     omo = ask("Плагин OMO для opencode.json (none — не подключать)", DEFAULT_OMO)
+    omo_profile = "skip"
+    if omo != "none":
+        print("\nКак установить .omo/omo.jsonc?")
+        choices = dict(zip(("1", "2", "3"), OMO_PROFILE_MODES))
+        for number, mode in choices.items():
+            print(f"  {number}. {OMO_PROFILE_MODES[mode]}")
+        while True:
+            choice = ask("Выберите вариант", "2")
+            if choice in choices:
+                omo_profile = choices[choice]
+                break
+            print("  введите 1, 2 или 3")
     local = ask_yes("Отдельное окружение Mempalace внутри проекта (~430 МБ)? "
                     "Нет — одно общее окружение для всех проектов", default=False)
 
     spec = ask_yes("focused-spec и интеграция OpenCode (нужен Node.js 22.16+)?")
     argv = ["install", str(project), "--name", name, "--wing", wing, "--omo", omo,
+            "--omo-profile", omo_profile,
             "--venv", "local" if local else "shared"] + ([] if spec else ["--no-spec"])
     wheels = KIT_DIR / "wheels"
     if wheels.is_dir() and any(wheels.glob("*.whl")):
@@ -1580,11 +1535,12 @@ def cmd_wizard(_args: argparse.Namespace) -> int:
     print(f"  имя:          {name}")
     print(f"  крыло:        {wing}")
     print(f"  OMO:          {omo}")
+    print(f"  профиль OMO:  {OMO_PROFILE_MODES[omo_profile]}")
     patch = OMO_PATCHES.get(project_omo_spec(project, omo)) if omo != "none" else None
     print(f"  доработка:    {patch['title'] + ' (кэш OpenCode)' if patch else 'нет'}")
     print(f"  окружение:    {'в проекте (.venv-mempalace)' if local else default_venv_dir()}")
     print(f"  focused-spec: {FOCUSED_SPEC_TAG if spec else 'нет'}")
-    print("  Существующие файлы проекта не перезаписываются; измененные файлы сохраняются как *.bak-<время>.")
+    print("  Изменяемые файлы сохраняются как *.bak-<время>; профиль OMO обновляется по выбранному варианту.")
     if not ask_yes("\nПродолжить?"):
         print("Отменено, изменения не вносились.")
         return 0
@@ -1614,8 +1570,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("install", help="установка обвязки в проект",
                        description="Установка или обновление agent-kit в каталоге проекта. "
-                                   "Повторный запуск безопасен: файлы проекта не перезаписываются, "
-                                   "управляемые блоки и скрипты обновляются с резервной копией.")
+                                    "Управляемые блоки, скрипты и профиль OMO "
+                                    "обновляются с резервной копией; режим OMO задает --omo-profile.")
     p.add_argument("target", help="каталог проекта (создается при отсутствии)")
     p.add_argument("--name", help="имя проекта (по умолчанию имя каталога)")
     p.add_argument("--wing", help="крыло Mempalace (по умолчанию имя в snake_case)")
@@ -1626,8 +1582,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--python", help="Python 3.12+ для создания окружения")
     p.add_argument("--wheelhouse", help="офлайн-установка пакетов из каталога wheel-файлов")
     p.add_argument("--no-mempalace", action="store_true", help="не устанавливать Mempalace (только файлы)")
-    p.add_argument("--no-omo-profile", action="store_true",
-                   help="не добавлять профиль моделей OMO в .omo/omo.jsonc (использовать ~/.omo/omo.jsonc)")
+    profile = p.add_mutually_exclusive_group()
+    profile.add_argument("--omo-profile", choices=tuple(OMO_PROFILE_MODES), default="merge",
+                         help="режим .omo/omo.jsonc: replace — заменить эталоном, merge — добавить "
+                              "отсутствующие ключи (по умолчанию), skip — не создавать и не обновлять")
+    profile.add_argument("--no-omo-profile", dest="omo_profile", action="store_const", const="skip",
+                         help="то же, что --omo-profile skip: не создавать и не обновлять .omo/omo.jsonc")
     p.add_argument("--no-omo-patch", action="store_true",
                    help="не применять доработку комплекта к пакету OMO в кэше OpenCode (поддержка GPT-6)")
     p.add_argument("--no-spec", action="store_true",

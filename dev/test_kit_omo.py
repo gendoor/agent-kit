@@ -78,42 +78,78 @@ class OmoProfileTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
             self.assertEqual(list(path.parent.glob("*.bak-*")), [])
 
-    def test_legacy_opus_route_is_migrated(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            project = Path(tmp)
-            path = project / ".omo" / "omo.jsonc"
-            path.parent.mkdir()
-            original = {
-                "[opencode]": {
-                    "agents": {
-                        "sisyphus": {
-                            "model": "externcash/claude-opus-5-5",
-                            "fallback_models": [
-                                {"model": "externcash/claude-opus-5-5"},
-                                {"model": "local/fallback"},
-                            ],
-                        },
-                    },
-                    "categories": {
-                        "writing": {
-                            "models": [
-                                {"model": "externcash/claude-opus-5-5", "reasoning": "low"},
-                                {"model": "apiclo/claude-opus-5-5", "reasoning": "low"},
-                            ],
-                        },
-                    },
-                },
-            }
-            path.write_text(json.dumps(original, ensure_ascii=False), encoding="utf-8")
-            kit.merge_omo(project, [KIT_ROOT / "template/omo/profile.json"])
-            updated = json.loads(kit.strip_jsonc(kit.read_text(path)))
-            agent = updated["[opencode]"]["agents"]["sisyphus"]
-            self.assertEqual(agent["model"], "apiclo/claude-opus-5-5")
-            self.assertEqual(agent["fallback_models"], [{"model": "local/fallback"}])
-            self.assertEqual(updated["[opencode]"]["categories"]["writing"]["models"],
-                             [{"model": "apiclo/claude-opus-5-5", "reasoning": "low"}])
-            self.assertNotIn("externcash/claude-opus-5-5", path.read_text(encoding="utf-8"))
-            self.assertTrue(path.with_name(f"omo.jsonc.bak-{kit.STAMP}").is_file())
+    def test_install_profile_modes(self):
+        profile = KIT_ROOT / "template/omo/profile.json"
+        for mode in ("replace", "merge", "skip"):
+            for exists in (True, False):
+                for dry_run in (True, False):
+                    with self.subTest(mode=mode, exists=exists, dry_run=dry_run), \
+                         tempfile.TemporaryDirectory() as tmp:
+                        project = Path(tmp)
+                        path = project / ".omo" / "omo.jsonc"
+                        original = json.loads(profile.read_text(encoding="utf-8").replace(
+                            "gpt-6.1-terra", "gpt-5.6-terra").replace(
+                            "apiclo/claude-opus-5-5", "externcash/claude-opus-5-5"))
+                        del original["[opencode]"]["runtime_fallback"]
+                        original["[opencode]"]["agents"]["momus"]["prompt_append"] = "Свои правила"
+                        raw = ("\ufeff// Настройки проекта\r\n" + json.dumps(original, ensure_ascii=False) + "\r\n").encode("utf-8")
+                        if exists:
+                            path.parent.mkdir()
+                            path.write_bytes(raw)
+                        args = kit.build_parser().parse_args([
+                            "install", str(project), "--only", "base", "--no-mempalace",
+                            "--no-omo-patch", "--skip-probe", "--omo-profile", mode,
+                            *(["--dry-run"] if dry_run else []),
+                        ])
+                        try:
+                            with contextlib.redirect_stdout(io.StringIO()):
+                                self.assertEqual(args.func(args), 0)
+                            if dry_run or mode == "skip":
+                                self.assertEqual(path.read_bytes() if path.exists() else None,
+                                                 raw if exists else None)
+                                self.assertEqual(list(path.parent.glob("*.bak-*")), [])
+                                continue
+                            updated = json.loads(kit.strip_jsonc(kit.read_text(path).lstrip("\ufeff")))
+                            expected = json.loads(profile.read_text(encoding="utf-8"))
+                            if mode == "merge" and exists:
+                                original["[opencode]"]["runtime_fallback"] = expected["[opencode]"]["runtime_fallback"]
+                                expected = original
+                            self.assertEqual(updated, expected)
+                            backups = list(path.parent.glob("*.bak-*"))
+                            self.assertEqual([p.read_bytes() for p in backups], [raw] if exists else [])
+                            before = path.read_bytes()
+                            if exists:
+                                self.assertTrue(before.startswith(b"\xef\xbb\xbf"))
+                                self.assertIn(b"\r\n", before)
+                            with contextlib.redirect_stdout(io.StringIO()):
+                                self.assertEqual(args.func(args), 0)
+                            self.assertEqual(path.read_bytes(), before)
+                            self.assertEqual(list(path.parent.glob("*.bak-*")), backups)
+                        finally:
+                            kit.DRY_RUN = False
+
+    def test_replace_and_skip_accept_invalid_existing_jsonc(self):
+        for mode in ("replace", "merge", "skip"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                project = Path(tmp)
+                path = project / ".omo" / "omo.jsonc"
+                path.parent.mkdir()
+                raw = "// Незаконченный конфиг\n{".encode("utf-8")
+                path.write_bytes(raw)
+                layers = [KIT_ROOT / "template/omo/profile.json"]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    if mode == "merge":
+                        with self.assertRaises(kit.KitError):
+                            kit.merge_omo(project, layers, mode)
+                    else:
+                        kit.merge_omo(project, layers, mode)
+                if mode == "replace":
+                    self.assertEqual(json.loads(kit.strip_jsonc(kit.read_text(path))),
+                                     json.loads(layers[0].read_text(encoding="utf-8")))
+                    self.assertEqual([p.read_bytes() for p in path.parent.glob("*.bak-*")], [raw])
+                else:
+                    self.assertEqual(path.read_bytes(), raw)
+                    self.assertEqual(list(path.parent.glob("*.bak-*")), [])
 
     def test_dry_run_does_not_create_project(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -237,7 +273,32 @@ class InstallerComponentTests(unittest.TestCase):
                 args = install.call_args.args[0]
                 self.assertEqual(args.no_spec, not use_spec)
                 self.assertEqual(args.omo, "none")
+                self.assertEqual(args.omo_profile, "skip")
                 self.assertEqual(args.venv, "shared")
+
+    def test_wizard_selects_profile_mode(self):
+        for mode, choice in (("replace", "1"), ("merge", ""), ("skip", "3")):
+            for installed in (True, False):
+                with self.subTest(mode=mode, installed=installed), tempfile.TemporaryDirectory() as tmp:
+                    if installed:
+                        (Path(tmp) / ".agent-kit.json").write_text(
+                            json.dumps({"name": "Проверка", "wing": "wizard_check"}), encoding="utf-8")
+                    answers = [tmp] + ([] if installed else ["Проверка", "wizard_check"])
+                    answers += ["", "неверный вариант", choice]
+                    with patch("builtins.input", side_effect=answers), \
+                         patch.object(kit, "ask_yes", side_effect=[False, False, True]), \
+                         patch.object(kit, "cmd_install", return_value=0) as install, \
+                         contextlib.redirect_stdout(io.StringIO()) as output:
+                        self.assertEqual(kit.cmd_wizard(None), 0)
+                    self.assertEqual(install.call_args.args[0].omo_profile, mode)
+                    self.assertIn(kit.OMO_PROFILE_MODES[mode], output.getvalue())
+
+    def test_profile_cli_default_alias_and_conflicts(self):
+        parser = kit.build_parser()
+        self.assertEqual(parser.parse_args(["install", "project"]).omo_profile, "merge")
+        self.assertEqual(parser.parse_args(["install", "project", "--no-omo-profile"]).omo_profile, "skip")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["install", "project", "--omo-profile", "replace", "--no-omo-profile"])
 
 
 if __name__ == "__main__":
