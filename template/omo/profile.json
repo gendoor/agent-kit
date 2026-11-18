@@ -19,15 +19,15 @@
             "model": "closerouter/moonshotai/kimi-k3"
           },
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
@@ -36,29 +36,29 @@
         ]
       },
       "hephaestus": {
-        "model": "externcash/gpt-6.1-sol",
+        "model": "externcash/gpt-6.2-sol",
         "reasoning": "medium",
         "fallback_models": [
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "medium"
           }
         ]
       },
       "oracle": {
-        "model": "externcash/gpt-6.1-sol",
+        "model": "externcash/gpt-6.2-sol",
         "reasoning": "high",
         "fallback_models": [
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
@@ -141,15 +141,15 @@
         ]
       },
       "multimodal-looker": {
-        "model": "externcash/gpt-6.1-sol",
+        "model": "externcash/gpt-6.2-sol",
         "reasoning": "low",
         "fallback_models": [
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "low"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "low"
           },
           {
@@ -194,15 +194,15 @@
             "reasoning": "high"
           },
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
@@ -236,15 +236,15 @@
             "model": "closerouter/moonshotai/kimi-k3"
           },
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
@@ -265,15 +265,15 @@
             "model": "closerouter/moonshotai/kimi-k3"
           },
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
@@ -305,15 +305,15 @@
             "reasoning": "high"
           },
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "medium"
           }
         ]
@@ -321,15 +321,15 @@
       "ultrabrain": {
         "models": [
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "high"
           }
         ]
@@ -337,15 +337,15 @@
       "deep-low": {
         "models": [
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "medium"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "medium"
           }
         ]
@@ -448,15 +448,15 @@
             "reasoning": "high"
           },
           {
-            "model": "externcash/gpt-6.1-sol",
+            "model": "externcash/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
-            "model": "closerouter/openai/gpt-6.1-sol",
+            "model": "closerouter/openai/gpt-6.2-sol",
             "reasoning": "high"
           },
           {
-            "model": "codexsale/gpt-6.1-sol",
+            "model": "codexsale/gpt-6.2-sol",
             "reasoning": "high"
           }
         ]
