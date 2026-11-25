@@ -30,7 +30,7 @@ import tempfile
 import time
 from pathlib import Path
 
-KIT_VERSION = "1.4.0"
+KIT_VERSION = "1.4.1"
 MEMPALACE_VERSION = "3.9.0"
 EMBEDDING_MODEL = "embeddinggemma"
 MIN_VENV_PYTHON = (3, 12)

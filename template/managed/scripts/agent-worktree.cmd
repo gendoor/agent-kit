@@ -1,7 +1,7 @@
 @echo off
 rem Изолированные git worktree для параллельных субагентов (Windows).
 rem Логика в agent_worktree.py; парный файл для Linux - agent-worktree.
-rem   scripts\agent-worktree create|list|diff|merge|remove ...   справка: --help
+rem   .\scripts\agent-worktree.cmd create|list|diff|merge|remove ...   справка: --help
 setlocal
 set "PYTHONUTF8=1"
 where py >nul 2>&1

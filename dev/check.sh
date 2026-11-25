@@ -1,6 +1,6 @@
 #!/bin/sh
 # Проверка установщика и штатного init во временных проектах.
-# Нужны Node 22.16+, npm и Python 3; пакет хранится только в dev/node_modules.
+# Нужны Git, Node 22.16+, npm и Python 3; пакет хранится только в dev/node_modules.
 set -eu
 DEV=$(cd "$(dirname "$0")" && pwd)
 cd "$DEV"

@@ -93,15 +93,15 @@ Mempalace (`.venv-mempalace`) и палата платформенно-зави�
 Linux, macOS, WSL:
 
 ```bash
-tar xzf agent-kit-1.4.0.tar.gz
-agent-kit-1.4.0/install.sh ~/work/new-project
-agent-kit-1.4.0/install.sh ~/work/new-project --dry-run   # только показать
+tar xzf agent-kit-1.4.1.tar.gz
+agent-kit-1.4.1/install.sh ~/work/new-project
+agent-kit-1.4.1/install.sh ~/work/new-project --dry-run   # только показать
 ```
 
-Windows (cmd или PowerShell), архив `agent-kit-1.4.0.zip`:
+Windows (cmd или PowerShell), архив `agent-kit-1.4.1.zip`:
 
 ```bat
-agent-kit-1.4.0\install.cmd C:\work\new-project
+agent-kit-1.4.1\install.cmd C:\work\new-project
 ```
 
 По умолчанию установщик выбирает оба компонента:
@@ -126,7 +126,7 @@ agent-kit-1.4.0\install.cmd C:\work\new-project
 Только focused-spec — для проекта со своей обвязкой:
 
 ```bash
-agent-kit-1.4.0/install.sh ~/work/project --only spec
+agent-kit-1.4.1/install.sh ~/work/project --only spec
 ```
 
 Справка: `install.sh --help` / `install.cmd --help`.
@@ -222,11 +222,11 @@ Mempalace и кэш модели эмбеддингов.
 ```
 
 В `dist/` создаются архивы
-`agent-kit-1.4.0-offline-<платформа>-py312.tar.gz` и `.zip`. Внутри находится
-каталог `agent-kit-1.4.0/` с `wheels/`:
+`agent-kit-1.4.1-offline-<платформа>-py312.tar.gz` и `.zip`. Внутри находится
+каталог `agent-kit-1.4.1/` с `wheels/`:
 
 ```bat
-agent-kit-1.4.0\install.cmd C:\work\project --wheelhouse agent-kit-1.4.0\wheels --python "C:\Program Files\Python312\python.exe"
+agent-kit-1.4.1\install.cmd C:\work\project --wheelhouse agent-kit-1.4.1\wheels --python "C:\Program Files\Python312\python.exe"
 ```
 
 Модель `onnx-community/embeddinggemma-300m-ONNX` скачивается в кэш Hugging
@@ -249,11 +249,15 @@ focused-spec нужно подготовить отдельно; `--wheelhouse` 
 запуск нужных CLI из выданного worktree и передайте исполнителю точные пути,
 команды запуска и корень проекта-потребителя в worktree. Если в worktree нет
 `node_modules` или CLI не найден в `PATH`, проверьте известные пути напрямую:
-glob может пропустить игнорируемые файлы. Установленный CLI основного checkout
-можно вызвать по абсолютному пути, если это допускает его контракт. Тесты,
-сборка и плагины используют зависимости проекта в worktree или объявленном
-workspace. У вложенного worktree проверьте, не подхватываются ли зависимости
-из родительского checkout, и не создавайте общую ссылку на `node_modules`.
+glob может пропустить игнорируемые файлы. Соблюдайте порядок выбора инструмента:
+если его путь не задан явно, предпочитайте установку проекта в worktree или его
+объявленном workspace. При её отсутствии используйте CLI основного checkout
+по абсолютному пути, если это допускает его контракт. Если версия закреплена
+в lock-файле или ограничена манифестом проекта в worktree, проверьте её перед
+делегацией. Тесты, сборка и плагины используют зависимости
+проекта в worktree или объявленном workspace. У вложенного worktree проверьте,
+не подхватываются ли зависимости из основного checkout, и не создавайте общую
+ссылку на `node_modules`.
 
 ## Исполняемые спецификации (focused-spec и SDD)
 
@@ -311,6 +315,6 @@ AGENTS.md, слияние OMO и реальный CLI во временных п
 Нужны Git, Node.js 22.16+, npm и Python 3.9+; установка и интеграционные проверки
 обращаются к npm registry.
 
-`build.sh` создает `dist/agent-kit-1.4.0.tar.gz` и
-`dist/agent-kit-1.4.0.zip`. Зависимости разработки и тестовый скрипт из `dev/`
+`build.sh` создает `dist/agent-kit-1.4.1.tar.gz` и
+`dist/agent-kit-1.4.1.zip`. Зависимости разработки и тестовый скрипт из `dev/`
 в архивы не входят. Версия архивов берется из `KIT_VERSION` в `lib/kit.py`.

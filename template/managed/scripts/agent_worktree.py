@@ -139,7 +139,8 @@ def cmd_merge(args: list) -> None:
         raise SystemExit(1)
     current = git("rev-parse", "--abbrev-ref", "HEAD")
     print(f"ветка {branch} слита в {current}")
-    print(f"после проверки удалите worktree: scripts/agent-worktree remove {slug}")
+    launcher = r".\scripts\agent-worktree.cmd" if os.name == "nt" else "scripts/agent-worktree"
+    print(f"после проверки удалите worktree: {launcher} remove {slug}")
 
 
 def cmd_remove(args: list) -> None:

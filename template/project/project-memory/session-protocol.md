@@ -32,9 +32,11 @@
 - Правила делегации заданы в корневом `AGENTS.md`, раздел «Subagent Workspace
   Isolation». Read-only задачи можно выполнять параллельно. Для параллельного
   изменения существующих файлов каждому write-субагенту выдается отдельный
-  git worktree через `scripts/agent-worktree create <task-name>`; merge
-  выполняет только главный агент последовательно через
-  `scripts/agent-worktree merge <task-name>`.
+  git worktree через `scripts/agent-worktree create <task-name>`. До делегации
+  проверь инструменты по навыку `agent-kit-worktrees`. Merge выполняет только
+  главный агент последовательно через `scripts/agent-worktree merge <task-name>`.
+  В Windows для обеих команд используй `.\scripts\agent-worktree.cmd`
+  с теми же аргументами.
 - Исключение без worktree: параллельные create-only задачи с явно заданными
   непересекающимися списками новых путей. Ни один путь не должен существовать
   заранее; изменять существующие файлы запрещено. Общие точки регистрации
