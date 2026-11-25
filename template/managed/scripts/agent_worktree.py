@@ -14,7 +14,7 @@
   remove <slug> [--force]       удалить worktree и ветку
 
 Все команды выполняются из основного worktree. Запуск:
-scripts/agent-worktree (Linux, macOS, WSL) или scripts\\agent-worktree (Windows).
+scripts/agent-worktree (Linux, macOS, WSL) или scripts\\agent-worktree.cmd (Windows).
 """
 
 from __future__ import annotations
@@ -98,6 +98,8 @@ def cmd_create(args: list) -> None:
     base = git("rev-parse", "--short", from_ref)
     print(f"создан worktree: {path} (ветка {branch}, база {base})")
     print(f"передайте субагенту рабочий каталог: {path}")
+    print(f"основной checkout (возможное место установки CLI): {root}")
+    print("перед делегацией проверьте запуск инструментов из worktree по навыку agent-kit-worktrees")
 
 
 def cmd_list(_args: list) -> None:

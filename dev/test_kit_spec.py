@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -640,6 +641,84 @@ class NativeInitTests(unittest.TestCase):
             finally:
                 kit.DRY_RUN = False
             self.assertFalse(target.exists())
+
+
+@unittest.skipUnless(os.environ.get("AGENT_KIT_SPEC_INTEGRATION") == "1", "Реальный CLI проверяется через dev/check.sh")
+class WorktreeCliTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="agent kit ")
+        self.addCleanup(temp.cleanup)
+        self.main_checkout = Path(temp.name).resolve() / "основной checkout"
+        subprocess.run(["git", "clone", "--quiet", str(KIT_ROOT), str(self.main_checkout)], check=True)
+        put(self.main_checkout, ".git/info/exclude", "/node_modules/\n")
+        self.worktree = self.main_checkout / ".worktrees" / "cli-check"
+        self.relative_cli = Path("node_modules/focused-spec/dist/cli.js")
+        self.cli = self.main_checkout / self.relative_cli
+        self.node = shutil.which("node")
+        self.assertIsNotNone(self.node, "Для проверки нужен Node.js")
+        self.worker_env = {**os.environ, "PATH": str(Path(temp.name) / "пустой PATH")}
+        self.worker_env.pop("NODE_PATH", None)
+        self.worker_env.pop("NODE_OPTIONS", None)
+
+    def create_worktree(self):
+        script = KIT_ROOT / "template/managed/scripts/agent_worktree.py"
+        result = subprocess.run([sys.executable, str(script), "create", self.worktree.name],
+                                cwd=self.main_checkout, check=True, capture_output=True,
+                                encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        self.assertIn(f"рабочий каталог: {self.worktree}", result.stdout)
+        self.assertIn(f"место установки CLI): {self.main_checkout}", result.stdout)
+        self.assertIn("agent-kit-worktrees", result.stdout)
+        self.assertFalse((self.worktree / "node_modules").exists())
+        self.assertIsNone(shutil.which("focused-spec", path=self.worker_env["PATH"]))
+
+    def run_cli(self, *args, cwd=None, check=True):
+        return subprocess.run([self.node, str(self.cli), *args], cwd=cwd or self.worktree,
+                              env=self.worker_env, check=check, capture_output=True, encoding="utf-8")
+
+    def test_installed_cli_is_used_by_path_with_consumer_root_in_worktree(self):
+        shutil.copytree(KIT_ROOT / "dev/node_modules", self.main_checkout / "node_modules")
+        self.create_worktree()
+        self.assertTrue(self.cli.is_file())
+        listed = subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "--", self.relative_cli.as_posix()],
+                                cwd=self.main_checkout, check=True, capture_output=True)
+        self.assertEqual(listed.stdout, b"", "Поиск по неигнорируемым файлам не видит установленный CLI")
+
+        guidance = json.loads(self.run_cli("instructions", "--protocol", "1", "--topic", "verify", "--json").stdout)
+        self.assertEqual(guidance["protocolVersion"], 1)
+        self.assertEqual(guidance["package"], {"name": "focused-spec", "version": kit.spec_package(self.cli)["version"]})
+        self.assertEqual(guidance["topic"], "verify")
+        self.assertTrue(guidance["content"].strip())
+
+        # Одинаковая регистрация, разное содержимое: --root должен выбрать модуль из worktree.
+        contracts = kit.spec_contracts(self.worktree, self.node, self.cli)
+        for project, content in ((self.main_checkout, "Основной checkout"), (self.worktree, "Выданный worktree")):
+            put(project, ".focused-spec/config.yaml", f"""version: {contracts['configuration']}
+specifications:
+  documents: [{{match: spec.md, scope: test, format: local}}]
+  formats:
+    local: {{module: tools/format.mjs, documentation: tools/format.md}}
+runners: {{}}
+""")
+            put(project, "tools/format.mjs", "export {};\n")
+            put(project, "tools/format.md", content)
+        report = json.loads(self.run_cli("plugin-docs", "--format", "local", "--root", str(self.worktree),
+                                         "--json", cwd=self.worktree / "tools").stdout)
+        self.assertEqual(Path(report["plugin"]["root"]), self.worktree)
+        self.assertEqual(report["document"]["content"], "Выданный worktree")
+        self.assertFalse((self.worktree / "node_modules").exists())
+
+    def test_missing_cli_fails_at_checked_installation_paths(self):
+        self.create_worktree()
+        for project in (self.worktree, self.main_checkout):
+            with self.subTest(project=project):
+                self.assertIsNone(kit.spec_cli(project))
+                self.assertFalse((project / self.relative_cli).is_file())
+        result = self.run_cli("instructions", "--protocol", "1", "--topic", "verify", "--json", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(result.stdout)
+        self.assertIn("MODULE_NOT_FOUND", result.stderr)
+        self.assertIn(str(self.cli), result.stderr)
+        self.assertFalse((self.worktree / "node_modules").exists())
 
 
 if __name__ == "__main__":
